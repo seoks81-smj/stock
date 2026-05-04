@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0a0e1a">
-<title>눌림목 스크리너 · Pullback Scanner</title>
+<title>눌림목 스크리너 · Pullback Screener</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -54,7 +54,11 @@
     max-width: 1100px; margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between;
   }
-  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+    transition: opacity 0.2s;
+  }
+  .logo:hover { opacity: 0.7; }
   .logo-mark {
     width: 32px; height: 32px;
     background: linear-gradient(135deg, var(--accent) 0%, #00a886 100%);
@@ -596,6 +600,33 @@
   }
   .summary-text strong { color: var(--accent); }
 
+  /* 돌아가기 버튼 */
+  .back-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+  }
+  .back-button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateX(-2px);
+  }
+  .back-button-arrow {
+    font-size: 16px;
+    line-height: 1;
+  }
+
   .disclaimer {
     margin-top: 32px;
     padding: 16px 20px;
@@ -626,11 +657,11 @@
 
 <header>
   <div class="header-inner">
-    <div class="logo">
+    <div class="logo" onclick="location.reload()" style="cursor: pointer;" title="클릭하면 새로고침">
       <div class="logo-mark">P</div>
       <div class="logo-text">
         <span class="ko">눌림목 스크리너</span>
-        <span class="en">Pullback Scanner</span>
+        <span class="en">Pullback Screener</span>
       </div>
     </div>
     <div class="status-pill">
@@ -694,9 +725,9 @@
         <div class="scan-option-label">최소 점수</div>
         <div class="pill-group" id="score-pills">
           <button class="pill" data-score="50">50점+</button>
-          <button class="pill active" data-score="60">60점+</button>
+          <button class="pill" data-score="60">60점+</button>
           <button class="pill" data-score="70">70점+</button>
-          <button class="pill" data-score="80">80점+</button>
+          <button class="pill active" data-score="80">80점+</button>
         </div>
       </div>
     </div>
@@ -757,7 +788,7 @@ const API_BASE = '';
 let currentJobId = null;
 let pollInterval = null;
 let selectedMarket = 'ALL';
-let selectedMinScore = 60;
+let selectedMinScore = 80;
 
 // === Tab Switch ===
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1032,7 +1063,7 @@ function onScanCompleted(data, fromCache) {
         <div class="scan-score-block">
           <div class="scan-price">
             ${fmt(r.current_price)}<br>
-            <span class="${changeClass}">${changeSign}${r.change_pct}원</span>
+            <span class="${changeClass}">${changeSign}${r.change_pct}%</span>
           </div>
           <div class="scan-score-pill" style="background:${grade.color}20;color:${grade.color};border:1px solid ${grade.color}">${r.score}</div>
         </div>
@@ -1060,14 +1091,82 @@ function formatCacheTime(isoStr) {
   return `${Math.floor(diffMin / 60)}시간 전`;
 }
 
+// 스캔 결과 캐시 (돌아가기 위해)
+let savedScanResults = null;
+
 async function loadDetail(ticker) {
+  // 현재 스캔 결과를 저장 (돌아가기용)
+  const resultsEl = document.getElementById('results');
+  if (resultsEl.querySelector('.scan-result-card')) {
+    savedScanResults = resultsEl.innerHTML;
+  }
+
   // 단일 분석 탭으로 전환
   document.querySelector('[data-mode="single"]').click();
   document.getElementById('ticker-input').value = ticker;
-  await analyzeSingle();
-  // 상단으로 스크롤
+
+  // 결과 화면 위에 "돌아가기" 버튼 추가하기 위해 직접 처리
+  const tickerPadded = ticker.trim().padStart(6, '0');
+  if (!/^\d{6}$/.test(tickerPadded)) return;
+
+  showLoader('분석 중... ' + tickerPadded);
+  try {
+    const res = await fetch(`${API_BASE}/api/analyze/${tickerPadded}`);
+    const data = await res.json();
+    hideLoader();
+    if (!res.ok) {
+      showError(data.error || '분석 실패');
+      return;
+    }
+
+    // 결과 영역 비우고 돌아가기 버튼 + 분석 결과 렌더
+    document.getElementById('results').innerHTML = '';
+
+    // 돌아가기 버튼 추가 (저장된 결과가 있을 때만)
+    if (savedScanResults) {
+      const backBtnHtml = `
+        <button class="back-button" onclick="goBackToScanList()">
+          <span class="back-button-arrow">←</span>
+          <span>스캔 결과 목록으로 돌아가기</span>
+        </button>
+      `;
+      document.getElementById('results').insertAdjacentHTML('beforeend', backBtnHtml);
+    }
+
+    renderResult(data);
+
+    // 브라우저 history에 추가 (뒤로가기 버튼 작동)
+    if (savedScanResults) {
+      history.pushState({ view: 'detail', ticker: tickerPadded }, '', '#detail');
+    }
+
+    // 상단으로 스크롤
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    hideLoader();
+    showError('서버 통신 오류: ' + err.message);
+  }
+}
+
+function goBackToScanList() {
+  if (!savedScanResults) return;
+
+  // 전체 스캔 탭으로 전환
+  document.querySelector('[data-mode="scan"]').click();
+
+  // 저장된 결과 복원
+  document.getElementById('results').innerHTML = savedScanResults;
+
+  // 스크롤 위로
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// 브라우저 뒤로가기 버튼 처리
+window.addEventListener('popstate', (e) => {
+  if (savedScanResults && document.querySelector('.back-button')) {
+    goBackToScanList();
+  }
+});
 
 // === UI Helpers ===
 function showLoader(text) {
@@ -1107,7 +1206,7 @@ function renderResult(r) {
       </div>
       <div class="price-block">
         <div class="price">${fmt(r.current_price)}</div>
-        <div class="price-change ${changeClass}">${changeSign}${r.change_pct}원</div>
+        <div class="price-change ${changeClass}">${changeSign}${r.change_pct}%</div>
       </div>
     </div>
 
@@ -1155,6 +1254,12 @@ function renderResult(r) {
       </div>
       <div class="chart-canvas-wrap">
         <canvas id="${id}"></canvas>
+      </div>
+      <div class="chart-title" style="margin-top: 14px;">
+        <span>거래량 (60일)</span>
+      </div>
+      <div class="chart-canvas-wrap" style="height: 100px;">
+        <canvas id="${id}-vol"></canvas>
       </div>
     </div>
     ` : ''}
@@ -1216,6 +1321,68 @@ function renderChart(canvasId, chartData) {
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6070', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 6 } },
         y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6070', font: { family: 'JetBrains Mono', size: 9 }, callback: v => v.toLocaleString() } }
+      }
+    }
+  });
+
+  // 거래량 차트 추가 렌더링
+  const volCtx = document.getElementById(canvasId + '-vol');
+  if (!volCtx) return;
+
+  // 거래량 막대 색상: 종가가 전일보다 오르면 빨강, 내리면 파랑
+  const volColors = chartData.close.map((c, i) => {
+    if (i === 0) return 'rgba(228,231,237,0.4)';
+    return c >= chartData.close[i - 1] ? 'rgba(255,71,87,0.7)' : 'rgba(93,173,226,0.7)';
+  });
+
+  new Chart(volCtx, {
+    type: 'bar',
+    data: {
+      labels: chartData.dates,
+      datasets: [{
+        label: '거래량',
+        data: chartData.volume,
+        backgroundColor: volColors,
+        borderWidth: 0,
+        barPercentage: 0.9,
+        categoryPercentage: 0.95,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0a0e1a',
+          borderColor: '#252b3d',
+          borderWidth: 1,
+          titleFont: { family: 'JetBrains Mono', size: 11 },
+          bodyFont: { family: 'JetBrains Mono', size: 11 },
+          padding: 10,
+          callbacks: {
+            label: ctx => '거래량: ' + ctx.parsed.y.toLocaleString()
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#5a6070', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 6 }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#5a6070',
+            font: { family: 'JetBrains Mono', size: 9 },
+            callback: v => {
+              if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+              if (v >= 1000) return (v / 1000).toFixed(0) + 'K';
+              return v;
+            }
+          }
+        }
       }
     }
   });
