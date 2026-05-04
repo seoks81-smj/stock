@@ -684,6 +684,117 @@
   }
   .summary-text strong { color: var(--accent); }
 
+  /* 로그인 모달 */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 14, 26, 0.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .login-overlay.hidden {
+    display: none;
+  }
+  .login-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    border-radius: 16px;
+    padding: 32px 28px;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: fadeUp 0.4s ease;
+  }
+  .login-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .login-logo .logo-mark {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  .login-title {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .login-subtitle {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 22px;
+  }
+  .login-input {
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 16px;
+    margin-bottom: 12px;
+    transition: border 0.2s;
+  }
+  .login-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .login-error {
+    color: #ff8590;
+    font-size: 12px;
+    margin-bottom: 12px;
+    min-height: 16px;
+  }
+  .login-btn {
+    width: 100%;
+    padding: 14px;
+    background: var(--accent);
+    color: var(--bg-deep);
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+  .login-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,170,0.3); }
+  .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .login-hint {
+    margin-top: 16px;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.15s;
+  }
+  .logout-btn:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
   /* 돌아가기 버튼 */
   .back-button {
     display: inline-flex;
@@ -739,6 +850,30 @@
 </head>
 <body>
 
+<!-- 로그인 모달 -->
+<div class="login-overlay hidden" id="login-overlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark">P</div>
+      <div>
+        <div class="login-title">눌림목 스크리너</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; margin-top: 2px;">PULLBACK SCREENER</div>
+      </div>
+    </div>
+    <div class="login-subtitle">
+      이 사이트는 비공개입니다.<br>
+      비밀번호를 입력해주세요.
+    </div>
+    <input type="password" class="login-input" id="login-password"
+           placeholder="비밀번호" autocomplete="current-password">
+    <div class="login-error" id="login-error"></div>
+    <button class="login-btn" id="login-btn">접속하기</button>
+    <div class="login-hint">
+      한 번 입력하면 24시간 동안 자동 유지됩니다.
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="header-inner">
     <div class="logo" onclick="location.reload()" style="cursor: pointer;" title="클릭하면 새로고침">
@@ -748,9 +883,12 @@
         <span class="en">Pullback Screener</span>
       </div>
     </div>
-    <div class="status-pill">
-      <span class="pulse"></span>
-      <span>KRX Live</span>
+    <div style="display: flex; align-items: center;">
+      <div class="status-pill">
+        <span class="pulse"></span>
+        <span>KRX Live</span>
+      </div>
+      <button class="logout-btn" id="logout-btn" style="display: none;" title="로그아웃">로그아웃</button>
     </div>
   </div>
 </header>
@@ -871,6 +1009,108 @@ let currentJobId = null;
 let pollInterval = null;
 let selectedMarket = 'ALL';
 let selectedMinScore = 80;
+
+// === 인증 처리 ===
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/check`);
+    const data = await res.json();
+    if (!data.auth_enabled) {
+      // 인증 비활성화 (개발 환경)
+      hideLoginOverlay();
+      return true;
+    }
+    if (data.authenticated) {
+      hideLoginOverlay();
+      document.getElementById('logout-btn').style.display = 'inline-block';
+      return true;
+    } else {
+      showLoginOverlay();
+      return false;
+    }
+  } catch (err) {
+    showLoginOverlay();
+    return false;
+  }
+}
+
+function showLoginOverlay() {
+  document.getElementById('login-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('login-password').focus(), 100);
+}
+
+function hideLoginOverlay() {
+  document.getElementById('login-overlay').classList.add('hidden');
+}
+
+async function doLogin() {
+  const pwInput = document.getElementById('login-password');
+  const errorEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  const password = pwInput.value;
+
+  if (!password) {
+    errorEl.textContent = '비밀번호를 입력하세요';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '확인 중...';
+  errorEl.textContent = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      hideLoginOverlay();
+      document.getElementById('logout-btn').style.display = 'inline-block';
+      pwInput.value = '';
+    } else {
+      errorEl.textContent = data.error || '비밀번호가 올바르지 않습니다';
+      pwInput.value = '';
+      pwInput.focus();
+    }
+  } catch (err) {
+    errorEl.textContent = '서버 연결 오류';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '접속하기';
+  }
+}
+
+async function doLogout() {
+  if (!confirm('로그아웃하시겠습니까?')) return;
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+  } catch {}
+  document.getElementById('logout-btn').style.display = 'none';
+  showLoginOverlay();
+}
+
+// 401 응답 시 자동으로 로그인 화면 표시
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  const response = await originalFetch.apply(this, args);
+  if (response.status === 401) {
+    showLoginOverlay();
+  }
+  return response;
+};
+
+// 이벤트 바인딩
+document.getElementById('login-btn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keypress', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('logout-btn').addEventListener('click', doLogout);
+
+// 페이지 로드 시 인증 확인
+checkAuth();
 
 // === Tab Switch ===
 document.querySelectorAll('.tab').forEach(tab => {
