@@ -42,7 +42,6 @@
   }
   .mono { font-family: 'JetBrains Mono', monospace; }
 
-  /* === Header === */
   header {
     border-bottom: 1px solid var(--border);
     background: rgba(10,14,26,0.85);
@@ -55,9 +54,7 @@
     max-width: 1100px; margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between;
   }
-  .logo {
-    display: flex; align-items: center; gap: 12px;
-  }
+  .logo { display: flex; align-items: center; gap: 12px; }
   .logo-mark {
     width: 32px; height: 32px;
     background: linear-gradient(135deg, var(--accent) 0%, #00a886 100%);
@@ -68,12 +65,8 @@
     color: var(--bg-deep);
     box-shadow: 0 4px 12px rgba(0,212,170,0.25);
   }
-  .logo-text {
-    display: flex; flex-direction: column; line-height: 1.1;
-  }
-  .logo-text .ko {
-    font-weight: 700; font-size: 16px; letter-spacing: -0.02em;
-  }
+  .logo-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .logo-text .ko { font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
   .logo-text .en {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em;
@@ -99,18 +92,9 @@
     50% { box-shadow: 0 0 0 6px rgba(0,212,170,0); }
   }
 
-  /* === Main Layout === */
-  main {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 24px 20px 80px;
-  }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
 
-  /* === Hero === */
-  .hero {
-    margin-bottom: 32px;
-    text-align: left;
-  }
+  .hero { margin-bottom: 32px; }
   .hero-title {
     font-size: clamp(28px, 5vw, 42px);
     font-weight: 800;
@@ -131,7 +115,6 @@
     max-width: 560px;
   }
 
-  /* === Mode Tabs === */
   .tabs {
     display: flex;
     gap: 4px;
@@ -141,9 +124,10 @@
     border-radius: 12px;
     margin-bottom: 16px;
     width: fit-content;
+    flex-wrap: wrap;
   }
   .tab {
-    padding: 10px 18px;
+    padding: 10px 16px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -160,7 +144,6 @@
     box-shadow: 0 1px 0 var(--border-bright) inset;
   }
 
-  /* === Search Box === */
   .search-card {
     background: var(--bg-panel);
     border: 1px solid var(--border);
@@ -176,9 +159,7 @@
     letter-spacing: 0.1em;
     margin-bottom: 10px;
   }
-  .search-row {
-    display: flex; gap: 10px;
-  }
+  .search-row { display: flex; gap: 10px; }
   .search-input {
     flex: 1;
     background: var(--bg-deep);
@@ -196,14 +177,8 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-dim);
   }
-  .search-input::placeholder {
-    color: var(--text-dim);
-  }
-  textarea.search-input {
-    min-height: 120px;
-    resize: vertical;
-    line-height: 1.6;
-  }
+  .search-input::placeholder { color: var(--text-dim); }
+  textarea.search-input { min-height: 120px; resize: vertical; line-height: 1.6; }
   .btn {
     padding: 14px 24px;
     background: var(--accent);
@@ -219,15 +194,18 @@
   }
   .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,170,0.3); }
   .btn:active { transform: translateY(0); }
-  .btn:disabled {
-    opacity: 0.5; cursor: not-allowed;
-    transform: none; box-shadow: none;
-  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
   .btn-block { width: 100%; }
-  .quick-tickers {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    margin-top: 14px;
+  .btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-bright);
   }
+  .btn-danger {
+    background: var(--danger);
+    color: white;
+  }
+  .quick-tickers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
   .quick-tag {
     padding: 6px 12px;
     background: var(--bg-elevated);
@@ -239,12 +217,131 @@
     cursor: pointer;
     transition: all 0.15s;
   }
-  .quick-tag:hover {
+  .quick-tag:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* === 전체 스캔 옵션 === */
+  .scan-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .scan-option-group {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .scan-option-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+  }
+  .pill-group { display: flex; gap: 4px; flex-wrap: wrap; }
+  .pill {
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pill.active {
+    background: var(--accent);
+    color: var(--bg-deep);
     border-color: var(--accent);
-    color: var(--accent);
   }
 
-  /* === Loading === */
+  .scan-warning {
+    background: rgba(244,208,63,0.06);
+    border: 1px solid rgba(244,208,63,0.15);
+    color: var(--warn);
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
+  /* === 진행 상황 === */
+  .progress-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .progress-card.active { display: block; animation: fadeUp 0.3s ease; }
+  .progress-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+  }
+  .progress-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .progress-status {
+    padding: 4px 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
+    border-radius: 100px;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .progress-bar-wrap {
+    height: 8px;
+    background: var(--bg-elevated);
+    border-radius: 100px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--gold));
+    width: 0%;
+    transition: width 0.4s ease;
+    border-radius: 100px;
+  }
+  .progress-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .progress-stat {
+    background: var(--bg-elevated);
+    padding: 12px 14px;
+  }
+  .progress-stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .progress-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* === 결과 카드 === */
   .loader {
     display: none;
     align-items: center; justify-content: center;
@@ -276,7 +373,6 @@
     text-transform: uppercase; letter-spacing: 0.15em;
   }
 
-  /* === Result Card === */
   .result-card {
     background: var(--bg-panel);
     border: 1px solid var(--border);
@@ -290,37 +386,82 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  /* 간단 결과 카드 (전체 스캔용) */
+  .scan-result-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+    cursor: pointer;
+    transition: border 0.15s, transform 0.15s;
+    animation: fadeUp 0.3s ease;
+  }
+  .scan-result-card:hover {
+    border-color: var(--accent);
+    transform: translateX(2px);
+  }
+  .scan-rank {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 32px;
+    text-align: center;
+  }
+  .scan-info-block { min-width: 0; }
+  .scan-stock-name {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .scan-stock-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .scan-score-block {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .scan-price {
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .scan-score-pill {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 48px;
+    text-align: center;
+  }
+
   .result-head {
     display: flex; justify-content: space-between; align-items: flex-start;
     gap: 16px; margin-bottom: 20px;
     padding-bottom: 20px; border-bottom: 1px solid var(--border);
   }
   .stock-info { flex: 1; min-width: 0; }
-  .stock-name {
-    font-size: 22px; font-weight: 800;
-    margin-bottom: 4px;
-    letter-spacing: -0.02em;
-  }
-  .stock-ticker {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--text-dim);
-  }
+  .stock-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em; }
+  .stock-ticker { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); }
   .price-block { text-align: right; }
-  .price {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 26px; font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-  .price-change {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    margin-top: 2px;
-  }
+  .price { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  .price-change { font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-top: 2px; }
   .change-up { color: var(--danger); }
   .change-down { color: var(--info); }
 
-  /* === Score === */
   .score-section {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -328,17 +469,9 @@
     align-items: center;
     margin-bottom: 20px;
   }
-  .score-circle {
-    width: 90px; height: 90px;
-    position: relative;
-  }
-  .score-circle svg {
-    width: 100%; height: 100%;
-    transform: rotate(-90deg);
-  }
-  .score-circle .score-bg {
-    fill: none; stroke: var(--border); stroke-width: 6;
-  }
+  .score-circle { width: 90px; height: 90px; position: relative; }
+  .score-circle svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .score-circle .score-bg { fill: none; stroke: var(--border); stroke-width: 6; }
   .score-circle .score-fg {
     fill: none; stroke-width: 6; stroke-linecap: round;
     transition: stroke-dashoffset 1s ease, stroke 0.3s;
@@ -348,11 +481,7 @@
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
   }
-  .score-num .num {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 24px; font-weight: 700;
-    line-height: 1;
-  }
+  .score-num .num { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; line-height: 1; }
   .score-num .max { font-size: 10px; color: var(--text-dim); }
   .score-detail .label {
     font-family: 'JetBrains Mono', monospace;
@@ -360,16 +489,9 @@
     text-transform: uppercase; letter-spacing: 0.15em;
     color: var(--text-dim); margin-bottom: 6px;
   }
-  .score-detail .grade {
-    font-size: 18px; font-weight: 700;
-    margin-bottom: 8px;
-  }
-  .score-detail .desc {
-    font-size: 12px; color: var(--text-secondary);
-    line-height: 1.5;
-  }
+  .score-detail .grade { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .score-detail .desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 
-  /* === Stats Grid === */
   .stats {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -379,10 +501,7 @@
     overflow: hidden;
     margin-bottom: 20px;
   }
-  .stat {
-    background: var(--bg-elevated);
-    padding: 14px 16px;
-  }
+  .stat { background: var(--bg-elevated); padding: 14px 16px; }
   .stat-label {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
@@ -390,12 +509,8 @@
     text-transform: uppercase; letter-spacing: 0.1em;
     margin-bottom: 6px;
   }
-  .stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 15px; font-weight: 600;
-  }
+  .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; }
 
-  /* === Chart === */
   .chart-block {
     background: var(--bg-elevated);
     border-radius: 10px;
@@ -412,14 +527,10 @@
     align-items: center;
   }
   .legend { display: flex; gap: 12px; }
-  .legend-item {
-    display: flex; align-items: center; gap: 4px;
-    font-size: 10px; color: var(--text-secondary);
-  }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-secondary); }
   .legend-dot { width: 8px; height: 2px; }
   .chart-canvas-wrap { position: relative; height: 220px; }
 
-  /* === Reasons === */
   .tags-block { margin-bottom: 20px; }
   .tags-title {
     font-family: 'JetBrains Mono', monospace;
@@ -428,27 +539,11 @@
     text-transform: uppercase; letter-spacing: 0.15em;
     margin-bottom: 8px;
   }
-  .tag-list {
-    display: flex; flex-wrap: wrap; gap: 6px;
-  }
-  .tag {
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    border: 1px solid;
-  }
-  .tag-good {
-    background: rgba(0,212,170,0.08);
-    color: var(--accent);
-    border-color: rgba(0,212,170,0.2);
-  }
-  .tag-warn {
-    background: rgba(244,208,63,0.08);
-    color: var(--warn);
-    border-color: rgba(244,208,63,0.2);
-  }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid; }
+  .tag-good { background: rgba(0,212,170,0.08); color: var(--accent); border-color: rgba(0,212,170,0.2); }
+  .tag-warn { background: rgba(244,208,63,0.08); color: var(--warn); border-color: rgba(244,208,63,0.2); }
 
-  /* === Trade Plan === */
   .plan {
     background: linear-gradient(135deg, rgba(0,212,170,0.05), rgba(212,165,116,0.03));
     border: 1px solid var(--border-bright);
@@ -468,20 +563,10 @@
     border-bottom: 1px dashed var(--border);
   }
   .plan-row:last-child { border-bottom: none; }
-  .plan-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-  .plan-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px; font-weight: 600;
-  }
-  .plan-pct {
-    font-size: 10px; margin-left: 6px;
-    color: var(--text-dim);
-  }
+  .plan-label { font-size: 12px; color: var(--text-secondary); }
+  .plan-value { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+  .plan-pct { font-size: 10px; margin-left: 6px; color: var(--text-dim); }
 
-  /* === Error === */
   .error-card {
     background: rgba(255,71,87,0.08);
     border: 1px solid rgba(255,71,87,0.2);
@@ -492,7 +577,25 @@
     margin-bottom: 16px;
   }
 
-  /* === Disclaimer === */
+  .summary-bar {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .summary-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .summary-text strong { color: var(--accent); }
+
   .disclaimer {
     margin-top: 32px;
     padding: 16px 20px;
@@ -505,7 +608,6 @@
   }
   .disclaimer strong { color: var(--text-secondary); }
 
-  /* === Mobile Optimization === */
   @media (max-width: 640px) {
     main { padding: 16px 14px 60px; }
     .search-card, .result-card { padding: 18px; }
@@ -515,6 +617,8 @@
     .stock-name { font-size: 18px; }
     .score-circle { width: 70px; height: 70px; }
     .score-num .num { font-size: 20px; }
+    .scan-options { grid-template-columns: 1fr; }
+    .progress-stats { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
 </head>
@@ -551,6 +655,7 @@
   <div class="tabs">
     <button class="tab active" data-mode="single">단일 종목</button>
     <button class="tab" data-mode="watchlist">관심종목 일괄</button>
+    <button class="tab" data-mode="scan">전체 스캔</button>
   </div>
 
   <section class="search-card" id="single-pane">
@@ -575,6 +680,64 @@
     <button class="btn btn-block" id="watchlist-btn" style="margin-top: 12px;">일괄 분석하기</button>
   </section>
 
+  <section class="search-card" id="scan-pane" style="display:none">
+    <div class="scan-options">
+      <div class="scan-option-group">
+        <div class="scan-option-label">스캔 범위</div>
+        <div class="pill-group" id="market-pills">
+          <button class="pill active" data-market="ALL">전체</button>
+          <button class="pill" data-market="KOSPI">코스피</button>
+          <button class="pill" data-market="KOSDAQ">코스닥</button>
+        </div>
+      </div>
+      <div class="scan-option-group">
+        <div class="scan-option-label">최소 점수</div>
+        <div class="pill-group" id="score-pills">
+          <button class="pill" data-score="50">50점+</button>
+          <button class="pill active" data-score="60">60점+</button>
+          <button class="pill" data-score="70">70점+</button>
+          <button class="pill" data-score="80">80점+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="scan-warning">
+      ⚠️ 전체 스캔은 약 <strong>20~30분</strong> 소요됩니다. 시작 후 페이지를 닫지 말고 다른 탭으로 이동하세요.
+      마지막 결과는 <strong>1시간 동안 캐시</strong>되어 같은 조건으로 재요청 시 즉시 표시됩니다.
+    </div>
+
+    <button class="btn btn-block" id="scan-btn">전체 스캔 시작</button>
+  </section>
+
+  <div class="progress-card" id="progress-card">
+    <div class="progress-head">
+      <span class="progress-title">스캔 진행 상황</span>
+      <span class="progress-status" id="progress-status">대기 중</span>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progress-bar"></div>
+    </div>
+    <div class="progress-stats">
+      <div class="progress-stat">
+        <div class="progress-stat-label">진행률</div>
+        <div class="progress-stat-value" id="stat-percent">0%</div>
+      </div>
+      <div class="progress-stat">
+        <div class="progress-stat-label">처리</div>
+        <div class="progress-stat-value" id="stat-processed">0 / 0</div>
+      </div>
+      <div class="progress-stat">
+        <div class="progress-stat-label">발견</div>
+        <div class="progress-stat-value" id="stat-found">0</div>
+      </div>
+      <div class="progress-stat">
+        <div class="progress-stat-label">경과</div>
+        <div class="progress-stat-value" id="stat-elapsed">0초</div>
+      </div>
+    </div>
+    <button class="btn btn-secondary btn-block" id="cancel-btn">스캔 취소</button>
+  </div>
+
   <div class="loader" id="loader">
     <div class="loader-bar"></div>
     <div class="loader-text" id="loader-text">데이터 수집 중...</div>
@@ -585,12 +748,16 @@
   <div class="disclaimer">
     <strong>⚠️ 참고용 도구입니다.</strong> 본 분석은 차트 패턴(기술적 분석)에 한정되며,
     회사 실적·뉴스·시장 상황은 반영하지 않습니다. 모든 투자 책임은 본인에게 있습니다.
-    데이터 출처: KRX(한국거래소). 캐시 5분 적용.
+    데이터 출처: KRX(한국거래소). 캐시 5분 적용. 전체 스캔 결과는 1시간 캐시.
   </div>
 </main>
 
 <script>
 const API_BASE = '';
+let currentJobId = null;
+let pollInterval = null;
+let selectedMarket = 'ALL';
+let selectedMinScore = 60;
 
 // === Tab Switch ===
 document.querySelectorAll('.tab').forEach(tab => {
@@ -600,7 +767,25 @@ document.querySelectorAll('.tab').forEach(tab => {
     const mode = tab.dataset.mode;
     document.getElementById('single-pane').style.display = mode === 'single' ? 'block' : 'none';
     document.getElementById('watchlist-pane').style.display = mode === 'watchlist' ? 'block' : 'none';
+    document.getElementById('scan-pane').style.display = mode === 'scan' ? 'block' : 'none';
     document.getElementById('results').innerHTML = '';
+    document.getElementById('progress-card').classList.remove('active');
+  });
+});
+
+// === Pill 선택 (시장/점수) ===
+document.querySelectorAll('#market-pills .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('#market-pills .pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    selectedMarket = pill.dataset.market;
+  });
+});
+document.querySelectorAll('#score-pills .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('#score-pills .pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    selectedMinScore = parseInt(pill.dataset.score);
   });
 });
 
@@ -612,7 +797,7 @@ document.querySelectorAll('.quick-tag').forEach(el => {
   });
 });
 
-// === Analyze Single ===
+// === 단일 분석 ===
 document.getElementById('analyze-btn').addEventListener('click', analyzeSingle);
 document.getElementById('ticker-input').addEventListener('keypress', e => {
   if (e.key === 'Enter') analyzeSingle();
@@ -641,7 +826,7 @@ async function analyzeSingle() {
   }
 }
 
-// === Analyze Watchlist ===
+// === 관심종목 일괄 ===
 document.getElementById('watchlist-btn').addEventListener('click', async () => {
   const text = document.getElementById('watchlist-input').value.trim();
   const tickers = text.split(/[\s,;\n]+/)
@@ -649,14 +834,8 @@ document.getElementById('watchlist-btn').addEventListener('click', async () => {
     .filter(t => /^\d{1,6}$/.test(t))
     .map(t => t.padStart(6, '0'));
 
-  if (tickers.length === 0) {
-    showError('유효한 종목코드가 없습니다');
-    return;
-  }
-  if (tickers.length > 30) {
-    showError('최대 30개까지 가능합니다');
-    return;
-  }
+  if (tickers.length === 0) { showError('유효한 종목코드가 없습니다'); return; }
+  if (tickers.length > 30) { showError('최대 30개까지 가능합니다'); return; }
 
   showLoader(`${tickers.length}개 종목 분석 중...`);
   try {
@@ -667,21 +846,228 @@ document.getElementById('watchlist-btn').addEventListener('click', async () => {
     });
     const data = await res.json();
     hideLoader();
-    if (!res.ok) {
-      showError(data.error || '분석 실패');
-      return;
-    }
+    if (!res.ok) { showError(data.error || '분석 실패'); return; }
     document.getElementById('results').innerHTML = '';
-    if (data.results.length === 0) {
-      showError('분석 가능한 종목이 없습니다');
-      return;
-    }
+    if (data.results.length === 0) { showError('분석 가능한 종목이 없습니다'); return; }
     data.results.forEach(r => renderResult(r));
   } catch (err) {
     hideLoader();
     showError('서버 통신 오류: ' + err.message);
   }
 });
+
+// === 전체 스캔 ===
+document.getElementById('scan-btn').addEventListener('click', startScan);
+document.getElementById('cancel-btn').addEventListener('click', cancelScan);
+
+async function startScan() {
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('scan-btn').disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/scan/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market: selectedMarket, min_score: selectedMinScore })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showError(data.error || '스캔 시작 실패');
+      document.getElementById('scan-btn').disabled = false;
+      return;
+    }
+
+    currentJobId = data.job_id;
+    showProgress();
+
+    // 캐시에서 즉시 완료된 경우
+    if (data.from_cache) {
+      const statusRes = await fetch(`${API_BASE}/api/scan/status/${currentJobId}`);
+      const statusData = await statusRes.json();
+      onScanCompleted(statusData, true);
+      return;
+    }
+
+    // 폴링 시작
+    pollInterval = setInterval(pollScanStatus, 2000);
+    pollScanStatus();
+  } catch (err) {
+    showError('서버 통신 오류: ' + err.message);
+    document.getElementById('scan-btn').disabled = false;
+  }
+}
+
+async function pollScanStatus() {
+  if (!currentJobId) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/scan/status/${currentJobId}`);
+    const data = await res.json();
+
+    if (data.error) {
+      stopPolling();
+      showError(data.error);
+      return;
+    }
+
+    updateProgress(data);
+
+    if (data.status === 'completed') {
+      stopPolling();
+      onScanCompleted(data, false);
+    } else if (data.status === 'error') {
+      stopPolling();
+      showError('스캔 오류: ' + (data.error || '알 수 없는 오류'));
+      document.getElementById('scan-btn').disabled = false;
+    } else if (data.status === 'cancelled') {
+      stopPolling();
+      document.getElementById('progress-status').textContent = '취소됨';
+      document.getElementById('scan-btn').disabled = false;
+    }
+  } catch (err) {
+    console.error('Poll error:', err);
+  }
+}
+
+function showProgress() {
+  document.getElementById('progress-card').classList.add('active');
+  document.getElementById('progress-bar').style.width = '0%';
+  document.getElementById('progress-status').textContent = '시작 중...';
+  document.getElementById('stat-percent').textContent = '0%';
+  document.getElementById('stat-processed').textContent = '0 / 0';
+  document.getElementById('stat-found').textContent = '0';
+  document.getElementById('stat-elapsed').textContent = '0초';
+}
+
+function updateProgress(data) {
+  const total = data.total || 0;
+  const processed = data.processed || 0;
+  const percent = total > 0 ? Math.round(processed / total * 100) : 0;
+
+  document.getElementById('progress-bar').style.width = percent + '%';
+  document.getElementById('stat-percent').textContent = percent + '%';
+  document.getElementById('stat-processed').textContent = `${processed} / ${total}`;
+  document.getElementById('stat-found').textContent = data.found || 0;
+  document.getElementById('stat-elapsed').textContent = formatElapsed(data.elapsed || 0);
+
+  const statusMap = {
+    'starting': '시작 중...',
+    'fetching_tickers': '종목 리스트 가져오는 중...',
+    'scanning': '분석 중',
+    'completed': '완료',
+    'error': '오류',
+    'cancelled': '취소됨'
+  };
+  document.getElementById('progress-status').textContent = statusMap[data.status] || data.status;
+}
+
+function formatElapsed(seconds) {
+  if (seconds < 60) return seconds + '초';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}분 ${secs}초`;
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+}
+
+async function cancelScan() {
+  if (!currentJobId) return;
+  if (!confirm('스캔을 취소하시겠습니까?')) return;
+
+  try {
+    await fetch(`${API_BASE}/api/scan/cancel/${currentJobId}`, { method: 'POST' });
+    stopPolling();
+    document.getElementById('scan-btn').disabled = false;
+  } catch (err) {
+    console.error('Cancel error:', err);
+  }
+}
+
+function onScanCompleted(data, fromCache) {
+  document.getElementById('progress-card').classList.remove('active');
+  document.getElementById('scan-btn').disabled = false;
+
+  const results = data.results || [];
+
+  // 요약 바
+  let summaryHtml = `
+    <div class="summary-bar">
+      <span class="summary-text">
+        ${fromCache ? '📦 캐시된 결과' : '✅ 스캔 완료'} ·
+        <strong>${results.length}개</strong> 종목 발견 ·
+        ${selectedMinScore}점 이상
+        ${fromCache ? `· ${formatCacheTime(data.completed_at)}` : `· ${formatElapsed(data.elapsed || 0)} 소요`}
+      </span>
+      <button class="pill" onclick="rescan()" style="background:var(--bg-elevated);color:var(--text-primary);border-color:var(--border-bright)">🔄 다시 스캔</button>
+    </div>
+  `;
+
+  if (results.length === 0) {
+    document.getElementById('results').innerHTML = summaryHtml +
+      `<div class="error-card">조건에 맞는 종목이 없습니다. 점수 기준을 낮춰보세요.</div>`;
+    return;
+  }
+
+  // 결과 리스트 (간단 카드)
+  const listHtml = results.map((r, i) => {
+    const grade = r.grade;
+    const changeClass = r.change_pct > 0 ? 'change-up' : (r.change_pct < 0 ? 'change-down' : '');
+    const changeSign = r.change_pct > 0 ? '+' : '';
+    return `
+      <div class="scan-result-card" onclick="loadDetail('${r.ticker}')">
+        <div class="scan-rank">#${i + 1}</div>
+        <div class="scan-info-block">
+          <div class="scan-stock-name">${r.name}</div>
+          <div class="scan-stock-meta">
+            <span>${r.ticker}</span>
+            <span>조정 -${r.pullback_pct}%</span>
+            <span>RSI ${r.rsi || '-'}</span>
+          </div>
+        </div>
+        <div class="scan-score-block">
+          <div class="scan-price">
+            ${fmt(r.current_price)}<br>
+            <span class="${changeClass}">${changeSign}${r.change_pct}원</span>
+          </div>
+          <div class="scan-score-pill" style="background:${grade.color}20;color:${grade.color};border:1px solid ${grade.color}">${r.score}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('results').innerHTML = summaryHtml + `<div id="scan-list">${listHtml}</div>`;
+}
+
+function rescan() {
+  if (confirm('새로 스캔하시겠습니까? (캐시 무시하고 약 20~30분 소요)')) {
+    // 강제 재스캔: 캐시 삭제 후 시작 (백엔드 캐시는 별도 관리, 여기선 시간만 흐르면 됨)
+    startScan();
+  }
+}
+
+function formatCacheTime(isoStr) {
+  if (!isoStr) return '';
+  const date = new Date(isoStr);
+  const now = new Date();
+  const diffMin = Math.floor((now - date) / 60000);
+  if (diffMin < 1) return '방금';
+  if (diffMin < 60) return `${diffMin}분 전`;
+  return `${Math.floor(diffMin / 60)}시간 전`;
+}
+
+async function loadDetail(ticker) {
+  // 단일 분석 탭으로 전환
+  document.querySelector('[data-mode="single"]').click();
+  document.getElementById('ticker-input').value = ticker;
+  await analyzeSingle();
+  // 상단으로 스크롤
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 // === UI Helpers ===
 function showLoader(text) {
@@ -698,7 +1084,7 @@ function showError(msg) {
 }
 function fmt(n) { return n.toLocaleString('ko-KR'); }
 
-// === Render Result ===
+// === Result Render (단일/일괄용 상세 카드) ===
 function renderResult(r) {
   const score = r.score;
   const grade = r.grade;
@@ -756,6 +1142,7 @@ function renderResult(r) {
       <div class="stat"><div class="stat-label">RSI 14</div><div class="stat-value">${r.rsi || '-'}</div></div>
     </div>
 
+    ${r.chart ? `
     <div class="chart-block">
       <div class="chart-title">
         <span>가격 · 이동평균선 (60일)</span>
@@ -770,6 +1157,7 @@ function renderResult(r) {
         <canvas id="${id}"></canvas>
       </div>
     </div>
+    ` : ''}
 
     <div class="tags-block">
       <div class="tags-title">분석 결과</div>
@@ -798,57 +1186,23 @@ function renderResult(r) {
   `;
 
   document.getElementById('results').insertAdjacentHTML('beforeend', html);
-
-  // 차트 렌더
-  setTimeout(() => renderChart(id, r.chart), 50);
+  if (r.chart) {
+    setTimeout(() => renderChart(id, r.chart), 50);
+  }
 }
 
 function renderChart(canvasId, chartData) {
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
-
   new Chart(ctx, {
     type: 'line',
     data: {
       labels: chartData.dates,
       datasets: [
-        {
-          label: '종가',
-          data: chartData.close,
-          borderColor: '#e4e7ed',
-          backgroundColor: 'rgba(228,231,237,0.05)',
-          borderWidth: 1.8,
-          tension: 0.2,
-          pointRadius: 0,
-          fill: true,
-        },
-        {
-          label: 'MA5',
-          data: chartData.ma5.map(v => v || null),
-          borderColor: '#ff6b9d',
-          borderWidth: 1,
-          tension: 0.3,
-          pointRadius: 0,
-          fill: false,
-        },
-        {
-          label: 'MA20',
-          data: chartData.ma20.map(v => v || null),
-          borderColor: '#5dade2',
-          borderWidth: 1,
-          tension: 0.3,
-          pointRadius: 0,
-          fill: false,
-        },
-        {
-          label: 'MA60',
-          data: chartData.ma60.map(v => v || null),
-          borderColor: '#d4a574',
-          borderWidth: 1,
-          tension: 0.3,
-          pointRadius: 0,
-          fill: false,
-        }
+        { label: '종가', data: chartData.close, borderColor: '#e4e7ed', backgroundColor: 'rgba(228,231,237,0.05)', borderWidth: 1.8, tension: 0.2, pointRadius: 0, fill: true },
+        { label: 'MA5', data: chartData.ma5.map(v => v || null), borderColor: '#ff6b9d', borderWidth: 1, tension: 0.3, pointRadius: 0, fill: false },
+        { label: 'MA20', data: chartData.ma20.map(v => v || null), borderColor: '#5dade2', borderWidth: 1, tension: 0.3, pointRadius: 0, fill: false },
+        { label: 'MA60', data: chartData.ma60.map(v => v || null), borderColor: '#d4a574', borderWidth: 1, tension: 0.3, pointRadius: 0, fill: false }
       ]
     },
     options: {
@@ -857,32 +1211,11 @@ function renderChart(canvasId, chartData) {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0a0e1a',
-          borderColor: '#252b3d',
-          borderWidth: 1,
-          titleFont: { family: 'JetBrains Mono', size: 11 },
-          bodyFont: { family: 'JetBrains Mono', size: 11 },
-          padding: 10,
-        }
+        tooltip: { backgroundColor: '#0a0e1a', borderColor: '#252b3d', borderWidth: 1, titleFont: { family: 'JetBrains Mono', size: 11 }, bodyFont: { family: 'JetBrains Mono', size: 11 }, padding: 10 }
       },
       scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: {
-            color: '#5a6070',
-            font: { family: 'JetBrains Mono', size: 9 },
-            maxTicksLimit: 6,
-          }
-        },
-        y: {
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: {
-            color: '#5a6070',
-            font: { family: 'JetBrains Mono', size: 9 },
-            callback: v => v.toLocaleString()
-          }
-        }
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6070', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 6 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#5a6070', font: { family: 'JetBrains Mono', size: 9 }, callback: v => v.toLocaleString() } }
       }
     }
   });
