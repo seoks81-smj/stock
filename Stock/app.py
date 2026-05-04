@@ -11,13 +11,15 @@ import os
 import time
 import json
 import uuid
+import hashlib
+import secrets
 import threading
 from datetime import datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, make_response
 from flask_cors import CORS
 from pykrx import stock
 
@@ -32,6 +34,69 @@ except ImportError:
 
 app = Flask(__name__)
 CORS(app)
+
+# ============================================================
+# 비밀번호 인증
+# ============================================================
+
+# 환경변수 APP_PASSWORD에서 읽음. 없으면 인증 비활성화 (개발용)
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+AUTH_ENABLED = bool(APP_PASSWORD)
+TOKEN_LIFETIME_HOURS = 24  # 토큰 유효 기간
+
+# 유효한 토큰 저장 (메모리)
+_valid_tokens = {}  # token -> expiry_timestamp
+_tokens_lock = threading.Lock()
+
+
+def hash_password(password):
+    """비밀번호 해시 (간단한 방식)"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def generate_token():
+    """랜덤 토큰 생성"""
+    return secrets.token_urlsafe(32)
+
+
+def is_token_valid(token):
+    """토큰 유효성 검사"""
+    if not AUTH_ENABLED:
+        return True
+    if not token:
+        return False
+    with _tokens_lock:
+        expiry = _valid_tokens.get(token)
+        if expiry is None:
+            return False
+        if time.time() > expiry:
+            # 만료된 토큰 정리
+            del _valid_tokens[token]
+            return False
+        return True
+
+
+def cleanup_expired_tokens():
+    """만료된 토큰 정리 (백그라운드)"""
+    with _tokens_lock:
+        now = time.time()
+        expired = [t for t, exp in _valid_tokens.items() if exp < now]
+        for t in expired:
+            del _valid_tokens[t]
+
+
+def require_auth(f):
+    """인증 필요 데코레이터"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not AUTH_ENABLED:
+            return f(*args, **kwargs)
+        token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
+        if not is_token_valid(token):
+            return jsonify({"error": "인증이 필요합니다", "auth_required": True}), 401
+        return f(*args, **kwargs)
+    return decorated
+
 
 LOOKBACK_DAYS = 120
 CACHE_DIR = Path("/tmp/pullback_cache")
@@ -454,7 +519,72 @@ def health():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})
 
 
+# ============================================================
+# 인증 엔드포인트
+# ============================================================
+
+@app.route("/api/auth/check")
+def auth_check():
+    """현재 인증 상태 확인"""
+    if not AUTH_ENABLED:
+        return jsonify({"auth_enabled": False, "authenticated": True})
+    token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
+    return jsonify({
+        "auth_enabled": True,
+        "authenticated": is_token_valid(token)
+    })
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    """비밀번호 로그인"""
+    if not AUTH_ENABLED:
+        return jsonify({"success": True, "message": "인증 비활성화 상태"})
+
+    data = request.get_json() or {}
+    password = data.get("password", "")
+
+    # 약간의 딜레이 (브루트포스 방지)
+    time.sleep(0.5)
+
+    if password != APP_PASSWORD:
+        return jsonify({"success": False, "error": "비밀번호가 올바르지 않습니다"}), 401
+
+    # 토큰 발급
+    token = generate_token()
+    expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
+    with _tokens_lock:
+        _valid_tokens[token] = expiry
+        cleanup_expired_tokens()
+
+    response = make_response(jsonify({
+        "success": True,
+        "token": token,
+        "expires_in_hours": TOKEN_LIFETIME_HOURS
+    }))
+    response.set_cookie(
+        "auth_token", token,
+        max_age=TOKEN_LIFETIME_HOURS * 3600,
+        httponly=False,  # JS에서 접근 가능 (간단한 구현)
+        samesite="Lax",
+    )
+    return response
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    """로그아웃"""
+    token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
+    if token:
+        with _tokens_lock:
+            _valid_tokens.pop(token, None)
+    response = make_response(jsonify({"success": True}))
+    response.set_cookie("auth_token", "", max_age=0)
+    return response
+
+
 @app.route("/api/analyze/<ticker>")
+@require_auth
 def analyze(ticker):
     ticker = ticker.strip()
     # 종목명으로 들어왔을 경우 코드로 변환 시도
@@ -551,6 +681,7 @@ def resolve_ticker(query):
 
 
 @app.route("/api/search")
+@require_auth
 def search():
     """종목명/코드 검색 자동완성"""
     q = request.args.get("q", "").strip()
@@ -588,6 +719,7 @@ def search():
 
 
 @app.route("/api/watchlist", methods=["POST"])
+@require_auth
 def watchlist():
     data = request.get_json()
     tickers = data.get("tickers", [])
@@ -611,6 +743,7 @@ def watchlist():
 
 
 @app.route("/api/scan/start", methods=["POST"])
+@require_auth
 def scan_start():
     """전종목 스캔 시작"""
     data = request.get_json() or {}
@@ -670,6 +803,7 @@ def scan_start():
 
 
 @app.route("/api/scan/status/<job_id>")
+@require_auth
 def scan_status(job_id):
     """스캔 진행 상황 조회"""
     with SCAN_LOCK:
@@ -684,6 +818,7 @@ def scan_status(job_id):
 
 
 @app.route("/api/scan/cancel/<job_id>", methods=["POST"])
+@require_auth
 def scan_cancel(job_id):
     """스캔 취소"""
     with SCAN_LOCK:
