@@ -1,19 +1,20 @@
 """
-눌림목 스크리너 - Flask 백엔드
-================================
-한국 주식 눌림목 패턴을 분석하는 웹 API 서버
-
-엔드포인트:
-    GET /                   - 메인 페이지
-    GET /api/analyze/<code> - 단일 종목 분석
-    GET /api/watchlist      - 관심종목 일괄 분석
-    GET /api/health         - 헬스체크
+눌림목 스크리너 - Flask 백엔드 v2
+====================================
+v2 추가 기능:
+- 전종목 스캔 (백그라운드 비동기 작업)
+- 진행 상황 실시간 조회
+- 결과 캐싱 (1시간)
 """
 
 import os
 import time
+import json
+import uuid
+import threading
 from datetime import datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
@@ -24,11 +25,9 @@ from pykrx import stock
 app = Flask(__name__)
 CORS(app)
 
-# ============================================================
-# 설정
-# ============================================================
-
 LOOKBACK_DAYS = 120
+CACHE_DIR = Path("/tmp/pullback_cache")
+CACHE_DIR.mkdir(exist_ok=True, parents=True)
 
 CONFIG = {
     "ma20_uptrend_days": 5,
@@ -41,10 +40,9 @@ CONFIG = {
     "min_rise_pct": 15.0,
 }
 
+SCAN_JOBS = {}
+SCAN_LOCK = threading.Lock()
 
-# ============================================================
-# 데이터 가져오기 (캐시 적용)
-# ============================================================
 
 def get_date_range(days=LOOKBACK_DAYS):
     end = datetime.now()
@@ -52,20 +50,16 @@ def get_date_range(days=LOOKBACK_DAYS):
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
 
-# 5분 캐시 (같은 종목 반복 요청 방지)
 _cache = {}
-CACHE_TTL = 300  # 5분
+CACHE_TTL = 300
 
 
 def fetch_ohlcv_cached(ticker):
-    """캐시 적용된 OHLCV 데이터 조회"""
     now = time.time()
-
     if ticker in _cache:
         cached_data, cached_time = _cache[ticker]
         if now - cached_time < CACHE_TTL:
             return cached_data
-
     start_date, end_date = get_date_range()
     try:
         df = stock.get_market_ohlcv(start_date, end_date, ticker)
@@ -78,7 +72,7 @@ def fetch_ohlcv_cached(ticker):
         return None
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=3000)
 def get_ticker_name_cached(ticker):
     try:
         return stock.get_market_ticker_name(ticker)
@@ -86,9 +80,18 @@ def get_ticker_name_cached(ticker):
         return ticker
 
 
-# ============================================================
-# 기술적 분석
-# ============================================================
+def get_all_tickers(market="ALL"):
+    today = datetime.now().strftime("%Y%m%d")
+    try:
+        if market == "ALL":
+            kospi = stock.get_market_ticker_list(today, market="KOSPI")
+            kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
+            return kospi + kosdaq
+        else:
+            return stock.get_market_ticker_list(today, market=market)
+    except Exception:
+        return []
+
 
 def calculate_indicators(df):
     df = df.copy()
@@ -98,7 +101,6 @@ def calculate_indicators(df):
     df["ma60"] = df["close"].rolling(60).mean()
     df["ma120"] = df["close"].rolling(120).mean()
     df["vol_ma20"] = df["volume"].rolling(20).mean()
-
     delta = df["close"].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -111,13 +113,11 @@ def find_swing(df, window=60):
     recent = df.tail(window)
     high_idx = recent["close"].idxmax()
     high_price = recent["close"].max()
-
     before_high = recent.loc[:high_idx]
     if len(before_high) < 5:
         return None
     low_idx = before_high["close"].idxmin()
     low_price = before_high["close"].min()
-
     return {
         "swing_low_date": low_idx,
         "swing_low_price": float(low_price),
@@ -127,19 +127,16 @@ def find_swing(df, window=60):
     }
 
 
-def analyze_pullback(df, ticker_name="", ticker=""):
-    """눌림목 분석 - 점수와 상세 정보 반환"""
+def analyze_pullback(df, ticker_name="", ticker="", include_chart=True):
     if df is None or len(df) < 120:
-        return {"error": "데이터 부족 (최소 120일)"}
+        return {"error": "데이터 부족"}
 
     df = calculate_indicators(df)
     latest = df.iloc[-1]
-
     score = 0
     reasons = []
     warnings = []
 
-    # 1. 추세 확인 (30점)
     ma20_recent = df["ma20"].tail(CONFIG["ma20_uptrend_days"])
     if ma20_recent.is_monotonic_increasing:
         score += 10
@@ -172,11 +169,9 @@ def analyze_pullback(df, ticker_name="", ticker=""):
     elif swing["rise_pct"] >= 10:
         score += 5
 
-    # 2. 조정 깊이 (25점)
     high_price = swing["swing_high_price"]
     low_price = swing["swing_low_price"]
     current_price = float(latest["close"])
-
     pullback_pct = (high_price - current_price) / high_price * 100
     fib_ratio = (high_price - current_price) / (high_price - low_price) if high_price > low_price else 0
 
@@ -195,7 +190,6 @@ def analyze_pullback(df, ticker_name="", ticker=""):
     elif fib_ratio < CONFIG["fib_min"]:
         score += 3
 
-    # 3. 이평선 지지 (20점)
     tolerance = CONFIG["ma_support_tolerance"] / 100
     ma5_dist = abs(current_price - latest["ma5"]) / latest["ma5"]
     ma20_dist = abs(current_price - latest["ma20"]) / latest["ma20"]
@@ -203,10 +197,10 @@ def analyze_pullback(df, ticker_name="", ticker=""):
 
     if ma5_dist <= tolerance and current_price >= latest["ma5"] * 0.99:
         score += 20
-        reasons.append("5일선 지지 (강한 종목)")
+        reasons.append("5일선 지지")
     elif ma20_dist <= tolerance and current_price >= latest["ma20"] * 0.97:
         score += 18
-        reasons.append("20일선 지지 (생명선)")
+        reasons.append("20일선 지지")
     elif ma60_dist <= tolerance and current_price >= latest["ma60"] * 0.97:
         score += 12
         reasons.append("60일선 지지")
@@ -214,14 +208,11 @@ def analyze_pullback(df, ticker_name="", ticker=""):
         score += 10
         reasons.append("5-20일선 사이")
 
-    # 4. 거래량 패턴 (15점)
     pullback_start_idx = df.index.get_loc(swing["swing_high_date"])
     pullback_volumes = df.iloc[pullback_start_idx:]["volume"]
-
     if len(pullback_volumes) >= 3:
         avg_volume = df["vol_ma20"].iloc[pullback_start_idx]
         recent_avg_volume = pullback_volumes.tail(5).mean()
-
         if avg_volume > 0:
             vol_ratio = recent_avg_volume / avg_volume
             if vol_ratio < CONFIG["volume_dry_ratio"]:
@@ -233,7 +224,6 @@ def analyze_pullback(df, ticker_name="", ticker=""):
             else:
                 warnings.append(f"거래량 증가 ({vol_ratio*100:.0f}%)")
 
-    # 5. 반등 신호 (10점)
     recent_3 = df.tail(3)
     bullish_days = recent_3[recent_3["close"] > recent_3["open"]]
     if len(bullish_days) > 0:
@@ -246,11 +236,7 @@ def analyze_pullback(df, ticker_name="", ticker=""):
             score += 5
             reasons.append("양봉 출현")
 
-    # 차트 데이터 (최근 60일)
-    chart_data = df.tail(60).copy()
-    chart_data.index = chart_data.index.strftime("%Y-%m-%d")
-
-    return {
+    result = {
         "ticker": ticker,
         "name": ticker_name,
         "current_price": int(current_price),
@@ -273,8 +259,12 @@ def analyze_pullback(df, ticker_name="", ticker=""):
         "stop_loss": int(latest["ma20"] * 0.97),
         "target_1": int(high_price * 0.95),
         "target_2": int(high_price),
-        # 차트 데이터
-        "chart": {
+    }
+
+    if include_chart:
+        chart_data = df.tail(60).copy()
+        chart_data.index = chart_data.index.strftime("%Y-%m-%d")
+        result["chart"] = {
             "dates": chart_data.index.tolist(),
             "close": chart_data["close"].astype(int).tolist(),
             "ma5": chart_data["ma5"].fillna(0).astype(int).tolist(),
@@ -282,7 +272,7 @@ def analyze_pullback(df, ticker_name="", ticker=""):
             "ma60": chart_data["ma60"].fillna(0).astype(int).tolist(),
             "volume": chart_data["volume"].astype(int).tolist(),
         }
-    }
+    return result
 
 
 def get_grade(score):
@@ -298,9 +288,78 @@ def get_grade(score):
         return {"label": "비추천", "color": "#e74c3c"}
 
 
-# ============================================================
-# 라우트
-# ============================================================
+def background_scan(job_id, market, min_score):
+    """백그라운드에서 실행되는 전종목 스캔"""
+    try:
+        with SCAN_LOCK:
+            SCAN_JOBS[job_id]["status"] = "fetching_tickers"
+
+        tickers = get_all_tickers(market)
+        if not tickers:
+            with SCAN_LOCK:
+                SCAN_JOBS[job_id]["status"] = "error"
+                SCAN_JOBS[job_id]["error"] = "종목 리스트를 가져올 수 없습니다"
+            return
+
+        total = len(tickers)
+        with SCAN_LOCK:
+            SCAN_JOBS[job_id]["status"] = "scanning"
+            SCAN_JOBS[job_id]["total"] = total
+            SCAN_JOBS[job_id]["processed"] = 0
+            SCAN_JOBS[job_id]["found"] = 0
+
+        results = []
+        start_time = time.time()
+
+        for i, ticker in enumerate(tickers, 1):
+            with SCAN_LOCK:
+                if SCAN_JOBS[job_id].get("cancel"):
+                    SCAN_JOBS[job_id]["status"] = "cancelled"
+                    return
+
+            try:
+                df = fetch_ohlcv_cached(ticker)
+                if df is None:
+                    continue
+                name = get_ticker_name_cached(ticker)
+                result = analyze_pullback(df, ticker_name=name, ticker=ticker, include_chart=False)
+                if "error" not in result and result["score"] >= min_score:
+                    results.append(result)
+
+                if i % 10 == 0:
+                    with SCAN_LOCK:
+                        SCAN_JOBS[job_id]["processed"] = i
+                        SCAN_JOBS[job_id]["found"] = len(results)
+                        SCAN_JOBS[job_id]["elapsed"] = int(time.time() - start_time)
+                time.sleep(0.03)
+            except Exception:
+                continue
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+
+        with SCAN_LOCK:
+            SCAN_JOBS[job_id]["status"] = "completed"
+            SCAN_JOBS[job_id]["processed"] = total
+            SCAN_JOBS[job_id]["found"] = len(results)
+            SCAN_JOBS[job_id]["elapsed"] = int(time.time() - start_time)
+            SCAN_JOBS[job_id]["results"] = results
+            SCAN_JOBS[job_id]["completed_at"] = datetime.now().isoformat()
+
+        cache_file = CACHE_DIR / f"scan_{market}_{min_score}.json"
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "results": results,
+                "completed_at": datetime.now().isoformat(),
+                "total": total,
+                "market": market,
+                "min_score": min_score,
+            }, f, ensure_ascii=False)
+
+    except Exception as e:
+        with SCAN_LOCK:
+            SCAN_JOBS[job_id]["status"] = "error"
+            SCAN_JOBS[job_id]["error"] = str(e)
+
 
 @app.route("/")
 def index():
@@ -314,31 +373,23 @@ def health():
 
 @app.route("/api/analyze/<ticker>")
 def analyze(ticker):
-    """단일 종목 분석"""
     ticker = ticker.strip().zfill(6)
-
     df = fetch_ohlcv_cached(ticker)
     if df is None:
         return jsonify({"error": f"종목 {ticker} 데이터를 찾을 수 없습니다"}), 404
-
     name = get_ticker_name_cached(ticker)
     result = analyze_pullback(df, ticker_name=name, ticker=ticker)
-
     if "error" in result:
         return jsonify(result), 400
-
     return jsonify(result)
 
 
 @app.route("/api/watchlist", methods=["POST"])
 def watchlist():
-    """관심종목 일괄 분석"""
     data = request.get_json()
     tickers = data.get("tickers", [])
-
     if not tickers or len(tickers) > 30:
         return jsonify({"error": "종목은 1~30개까지 가능합니다"}), 400
-
     results = []
     for ticker in tickers:
         ticker = str(ticker).strip().zfill(6)
@@ -352,14 +403,92 @@ def watchlist():
                 results.append(result)
         except Exception:
             continue
-
     results.sort(key=lambda x: x["score"], reverse=True)
     return jsonify({"results": results, "count": len(results)})
 
 
-# ============================================================
-# 실행
-# ============================================================
+@app.route("/api/scan/start", methods=["POST"])
+def scan_start():
+    """전종목 스캔 시작"""
+    data = request.get_json() or {}
+    market = data.get("market", "ALL")
+    min_score = int(data.get("min_score", 60))
+
+    with SCAN_LOCK:
+        for jid, job in SCAN_JOBS.items():
+            if job["status"] in ("scanning", "fetching_tickers", "starting"):
+                return jsonify({
+                    "job_id": jid,
+                    "message": "이미 진행 중인 스캔이 있습니다",
+                    "existing": True
+                }), 200
+
+        cache_file = CACHE_DIR / f"scan_{market}_{min_score}.json"
+        if cache_file.exists():
+            with open(cache_file, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            cached_time = datetime.fromisoformat(cached["completed_at"])
+            age = (datetime.now() - cached_time).total_seconds()
+            if age < 3600:
+                job_id = str(uuid.uuid4())[:8]
+                SCAN_JOBS[job_id] = {
+                    "status": "completed",
+                    "from_cache": True,
+                    "results": cached["results"],
+                    "total": cached["total"],
+                    "processed": cached["total"],
+                    "found": len(cached["results"]),
+                    "completed_at": cached["completed_at"],
+                    "elapsed": 0,
+                    "market": market,
+                    "min_score": min_score,
+                }
+                return jsonify({"job_id": job_id, "from_cache": True, "cached_at": cached["completed_at"]})
+
+        job_id = str(uuid.uuid4())[:8]
+        SCAN_JOBS[job_id] = {
+            "status": "starting",
+            "market": market,
+            "min_score": min_score,
+            "total": 0,
+            "processed": 0,
+            "found": 0,
+            "started_at": datetime.now().isoformat(),
+        }
+
+    thread = threading.Thread(
+        target=background_scan,
+        args=(job_id, market, min_score),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "from_cache": False})
+
+
+@app.route("/api/scan/status/<job_id>")
+def scan_status(job_id):
+    """스캔 진행 상황 조회"""
+    with SCAN_LOCK:
+        job = SCAN_JOBS.get(job_id)
+        if not job:
+            return jsonify({"error": "작업을 찾을 수 없습니다"}), 404
+        if job["status"] == "completed":
+            return jsonify(job)
+        else:
+            response = {k: v for k, v in job.items() if k != "results"}
+            return jsonify(response)
+
+
+@app.route("/api/scan/cancel/<job_id>", methods=["POST"])
+def scan_cancel(job_id):
+    """스캔 취소"""
+    with SCAN_LOCK:
+        if job_id in SCAN_JOBS:
+            SCAN_JOBS[job_id]["cancel"] = True
+            return jsonify({"message": "취소 요청됨"})
+    return jsonify({"error": "작업을 찾을 수 없습니다"}), 404
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
