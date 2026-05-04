@@ -21,6 +21,14 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from pykrx import stock
 
+# FinanceDataReader 폴백 (pykrx 안될 때 대체)
+try:
+    import FinanceDataReader as fdr
+    HAS_FDR = True
+except ImportError:
+    HAS_FDR = False
+    print("FinanceDataReader 미설치 - pykrx만 사용")
+
 
 app = Flask(__name__)
 CORS(app)
@@ -61,36 +69,106 @@ def fetch_ohlcv_cached(ticker):
         if now - cached_time < CACHE_TTL:
             return cached_data
     start_date, end_date = get_date_range()
+
+    # 1차: pykrx 시도
     try:
         df = stock.get_market_ohlcv(start_date, end_date, ticker)
-        if df is None or len(df) < 60:
-            return None
-        df.columns = ["open", "high", "low", "close", "volume", "change"]
-        _cache[ticker] = (df, now)
-        return df
+        if df is not None and len(df) >= 60:
+            df.columns = ["open", "high", "low", "close", "volume", "change"]
+            _cache[ticker] = (df, now)
+            return df
     except Exception:
-        return None
+        pass
+
+    # 2차: FinanceDataReader 폴백
+    if HAS_FDR:
+        try:
+            start = datetime.strptime(start_date, "%Y%m%d")
+            end = datetime.strptime(end_date, "%Y%m%d")
+            df = fdr.DataReader(ticker, start, end)
+            if df is not None and len(df) >= 60:
+                # FDR 컬럼명을 pykrx와 통일
+                df = df.rename(columns={
+                    "Open": "open", "High": "high", "Low": "low",
+                    "Close": "close", "Volume": "volume", "Change": "change"
+                })
+                # change가 비율(0.05 = 5%)로 오므로 % 변환
+                if "change" in df.columns:
+                    df["change"] = df["change"] * 100
+                else:
+                    df["change"] = df["close"].pct_change() * 100
+                _cache[ticker] = (df, now)
+                return df
+        except Exception:
+            pass
+
+    return None
 
 
 @lru_cache(maxsize=3000)
 def get_ticker_name_cached(ticker):
+    # 1차: pykrx
     try:
-        return stock.get_market_ticker_name(ticker)
+        name = stock.get_market_ticker_name(ticker)
+        if name and name != ticker:
+            return name
     except Exception:
-        return ticker
+        pass
+    # 2차: FDR (전체 종목 리스트에서 찾기)
+    if HAS_FDR:
+        try:
+            for market in ["KOSPI", "KOSDAQ"]:
+                df = fdr.StockListing(market)
+                row = df[df["Code"].astype(str).str.zfill(6) == ticker]
+                if not row.empty:
+                    return row.iloc[0]["Name"]
+        except Exception:
+            pass
+    return ticker
 
 
 def get_all_tickers(market="ALL"):
-    today = datetime.now().strftime("%Y%m%d")
-    try:
-        if market == "ALL":
-            kospi = stock.get_market_ticker_list(today, market="KOSPI")
-            kosdaq = stock.get_market_ticker_list(today, market="KOSDAQ")
-            return kospi + kosdaq
-        else:
-            return stock.get_market_ticker_list(today, market=market)
-    except Exception:
-        return []
+    """종목 리스트 가져오기 - pykrx 우선, 실패 시 FinanceDataReader 폴백"""
+    # 1차 시도: pykrx (영업일 자동 검색)
+    for days_back in range(0, 8):
+        try_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        try:
+            if market == "ALL":
+                kospi = stock.get_market_ticker_list(try_date, market="KOSPI")
+                kosdaq = stock.get_market_ticker_list(try_date, market="KOSDAQ")
+                if kospi and kosdaq:
+                    print(f"✅ pykrx로 종목 가져옴 ({try_date}): KOSPI {len(kospi)}, KOSDAQ {len(kosdaq)}")
+                    return kospi + kosdaq
+            else:
+                tickers = stock.get_market_ticker_list(try_date, market=market)
+                if tickers:
+                    print(f"✅ pykrx로 종목 가져옴 ({try_date}): {market} {len(tickers)}")
+                    return tickers
+        except Exception as e:
+            print(f"pykrx 실패 ({try_date}): {e}")
+            time.sleep(0.3)
+            continue
+
+    # 2차 시도: FinanceDataReader 폴백
+    if HAS_FDR:
+        try:
+            print("🔄 pykrx 실패, FinanceDataReader로 재시도...")
+            if market == "ALL":
+                kospi_df = fdr.StockListing("KOSPI")
+                kosdaq_df = fdr.StockListing("KOSDAQ")
+                kospi = kospi_df["Code"].astype(str).str.zfill(6).tolist()
+                kosdaq = kosdaq_df["Code"].astype(str).str.zfill(6).tolist()
+                print(f"✅ FDR로 종목 가져옴: KOSPI {len(kospi)}, KOSDAQ {len(kosdaq)}")
+                return kospi + kosdaq
+            else:
+                df = fdr.StockListing(market)
+                tickers = df["Code"].astype(str).str.zfill(6).tolist()
+                print(f"✅ FDR로 종목 가져옴: {market} {len(tickers)}")
+                return tickers
+        except Exception as e:
+            print(f"FDR도 실패: {e}")
+
+    return []
 
 
 def calculate_indicators(df):
@@ -240,7 +318,7 @@ def analyze_pullback(df, ticker_name="", ticker="", include_chart=True):
         "ticker": ticker,
         "name": ticker_name,
         "current_price": int(current_price),
-        "change_pct": float(latest.get("change", 0)) if pd.notna(latest.get("change", 0)) else 0,
+        "change_pct": round(float(latest.get("change", 0)), 2) if pd.notna(latest.get("change", 0)) else 0,
         "score": score,
         "grade": get_grade(score),
         "high_price": int(high_price),
@@ -298,7 +376,12 @@ def background_scan(job_id, market, min_score):
         if not tickers:
             with SCAN_LOCK:
                 SCAN_JOBS[job_id]["status"] = "error"
-                SCAN_JOBS[job_id]["error"] = "종목 리스트를 가져올 수 없습니다"
+                SCAN_JOBS[job_id]["error"] = (
+                    "종목 리스트를 가져올 수 없습니다. "
+                    "KRX 서버가 일시적으로 응답하지 않을 수 있습니다. "
+                    "주말/공휴일이나 새벽 시간엔 불안정할 수 있으니 "
+                    "평일 저녁에 다시 시도해주세요."
+                )
             return
 
         total = len(tickers)
