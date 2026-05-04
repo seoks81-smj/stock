@@ -433,7 +433,6 @@ def get_grade(score):
 
 def background_scan(job_id, market, min_score):
     """백그라운드에서 실행되는 전종목 스캔"""
-    import gc
     try:
         with SCAN_LOCK:
             SCAN_JOBS[job_id]["status"] = "fetching_tickers"
@@ -480,16 +479,6 @@ def background_scan(job_id, market, min_score):
                         SCAN_JOBS[job_id]["processed"] = i
                         SCAN_JOBS[job_id]["found"] = len(results)
                         SCAN_JOBS[job_id]["elapsed"] = int(time.time() - start_time)
-
-                # 메모리 절약: 100개마다 캐시 정리 + GC
-                if i % 100 == 0:
-                    if len(_cache) > 200:
-                        # 오래된 캐시 절반 제거
-                        sorted_items = sorted(_cache.items(), key=lambda x: x[1][1])
-                        for k, _ in sorted_items[:len(_cache)//2]:
-                            del _cache[k]
-                    gc.collect()
-
                 time.sleep(0.03)
             except Exception:
                 continue
@@ -523,6 +512,19 @@ def background_scan(job_id, market, min_score):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/robots.txt")
+def robots():
+    """검색엔진 봇 차단"""
+    content = """User-agent: *
+Disallow: /
+
+# 모든 검색엔진의 모든 페이지 수집을 차단합니다.
+# Block all search engine crawlers.
+"""
+    from flask import Response
+    return Response(content, mimetype="text/plain")
 
 
 @app.route("/api/health")
@@ -760,11 +762,6 @@ def scan_start():
     data = request.get_json() or {}
     market = data.get("market", "ALL")
     min_score = int(data.get("min_score", 60))
-
-    # Render 무료 플랜 메모리 보호: 전체 스캔 시 코스피만 허용 권고
-    if market == "ALL" and os.environ.get("RENDER", "") == "true":
-        # Render에서는 ALL 대신 자동으로 KOSPI로 변경 (메모리 보호)
-        pass  # 현재는 경고만 추가
 
     with SCAN_LOCK:
         for jid, job in SCAN_JOBS.items():
