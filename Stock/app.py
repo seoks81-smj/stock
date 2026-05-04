@@ -456,7 +456,17 @@ def health():
 
 @app.route("/api/analyze/<ticker>")
 def analyze(ticker):
-    ticker = ticker.strip().zfill(6)
+    ticker = ticker.strip()
+    # 종목명으로 들어왔을 경우 코드로 변환 시도
+    if not ticker.isdigit():
+        resolved = resolve_ticker(ticker)
+        if resolved:
+            ticker = resolved
+        else:
+            return jsonify({"error": f"종목명 '{ticker}'을(를) 찾을 수 없습니다"}), 404
+    else:
+        ticker = ticker.zfill(6)
+
     df = fetch_ohlcv_cached(ticker)
     if df is None:
         return jsonify({"error": f"종목 {ticker} 데이터를 찾을 수 없습니다"}), 404
@@ -465,6 +475,116 @@ def analyze(ticker):
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+# ============================================================
+# 종목 검색 (이름 → 코드 변환)
+# ============================================================
+
+_ticker_map = None
+_ticker_map_lock = threading.Lock()
+
+
+def build_ticker_map():
+    """전체 종목 목록을 메모리에 캐싱 (이름 → 코드)"""
+    global _ticker_map
+    with _ticker_map_lock:
+        if _ticker_map is not None:
+            return _ticker_map
+
+        result = {}
+        # 1차: pykrx로 시도
+        try:
+            today = datetime.now().strftime("%Y%m%d")
+            for market in ["KOSPI", "KOSDAQ"]:
+                tickers = stock.get_market_ticker_list(today, market=market)
+                for t in tickers:
+                    try:
+                        name = stock.get_market_ticker_name(t)
+                        if name and name != t:
+                            result[name] = t
+                    except Exception:
+                        continue
+                    time.sleep(0.01)
+        except Exception:
+            pass
+
+        # 2차: FDR로 보완
+        if HAS_FDR and len(result) < 100:
+            try:
+                for market in ["KOSPI", "KOSDAQ"]:
+                    df = fdr.StockListing(market)
+                    for _, row in df.iterrows():
+                        code = str(row["Code"]).zfill(6)
+                        name = row["Name"]
+                        if name and name not in result:
+                            result[name] = code
+            except Exception as e:
+                print(f"FDR 종목 맵 빌드 실패: {e}")
+
+        _ticker_map = result
+        print(f"✅ 종목 맵 빌드 완료: {len(result)}개")
+        return result
+
+
+def resolve_ticker(query):
+    """종목명을 종목코드로 변환 (정확 일치 우선)"""
+    ticker_map = build_ticker_map()
+    query = query.strip()
+
+    # 정확 일치
+    if query in ticker_map:
+        return ticker_map[query]
+
+    # 부분 일치 (대소문자 무시)
+    query_lower = query.lower()
+    for name, code in ticker_map.items():
+        if name.lower() == query_lower:
+            return code
+
+    # 시작 일치
+    for name, code in ticker_map.items():
+        if name.lower().startswith(query_lower):
+            return code
+
+    return None
+
+
+@app.route("/api/search")
+def search():
+    """종목명/코드 검색 자동완성"""
+    q = request.args.get("q", "").strip()
+    if not q or len(q) < 1:
+        return jsonify({"results": []})
+
+    ticker_map = build_ticker_map()
+    q_lower = q.lower()
+
+    matches = []
+
+    # 코드로 검색 (숫자)
+    if q.isdigit():
+        for name, code in ticker_map.items():
+            if code.startswith(q):
+                matches.append({"code": code, "name": name})
+                if len(matches) >= 10:
+                    break
+    else:
+        # 정확 일치 우선
+        exact = []
+        starts = []
+        contains = []
+        for name, code in ticker_map.items():
+            name_lower = name.lower()
+            if name_lower == q_lower:
+                exact.append({"code": code, "name": name})
+            elif name_lower.startswith(q_lower):
+                starts.append({"code": code, "name": name})
+            elif q_lower in name_lower:
+                contains.append({"code": code, "name": name})
+        matches = (exact + starts + contains)[:10]
+
+    return jsonify({"results": matches})
 
 
 @app.route("/api/watchlist", methods=["POST"])
