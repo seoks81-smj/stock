@@ -352,6 +352,49 @@
     border-color: var(--accent);
   }
 
+  /* 점수 자유 입력 */
+  .score-input-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .score-input {
+    width: 80px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-bright);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    -moz-appearance: textfield;
+  }
+  .score-input::-webkit-outer-spin-button,
+  .score-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .score-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .score-input-suffix {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .score-quick-pills {
+    margin-top: 4px;
+  }
+  .score-quick-pills .pill {
+    padding: 5px 11px;
+    font-size: 11px;
+  }
+
   .scan-warning {
     background: rgba(244,208,63,0.06);
     border: 1px solid rgba(244,208,63,0.15);
@@ -948,11 +991,18 @@
       </div>
       <div class="scan-option-group">
         <div class="scan-option-label">최소 점수</div>
-        <div class="pill-group" id="score-pills">
-          <button class="pill" data-score="50">50점+</button>
-          <button class="pill" data-score="60">60점+</button>
-          <button class="pill" data-score="70">70점+</button>
-          <button class="pill active" data-score="80">80점+</button>
+        <div class="score-input-row">
+          <input type="number" class="score-input" id="score-input"
+                 value="80" min="0" max="100" step="1">
+          <span class="score-input-suffix">점 이상</span>
+        </div>
+        <div class="pill-group score-quick-pills" id="score-pills">
+          <button class="pill" data-score="50">50</button>
+          <button class="pill" data-score="60">60</button>
+          <button class="pill" data-score="70">70</button>
+          <button class="pill active" data-score="80">80</button>
+          <button class="pill" data-score="85">85</button>
+          <button class="pill" data-score="90">90</button>
         </div>
       </div>
     </div>
@@ -1141,11 +1191,47 @@ document.querySelectorAll('#market-pills .pill').forEach(pill => {
 });
 document.querySelectorAll('#score-pills .pill').forEach(pill => {
   pill.addEventListener('click', () => {
-    document.querySelectorAll('#score-pills .pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    selectedMinScore = parseInt(pill.dataset.score);
+    const score = parseInt(pill.dataset.score);
+    setMinScore(score);
   });
 });
+
+// 점수 입력란
+const scoreInput = document.getElementById('score-input');
+scoreInput.addEventListener('input', (e) => {
+  let val = parseInt(e.target.value);
+  if (isNaN(val)) val = 0;
+  // 0~100 범위 강제
+  val = Math.max(0, Math.min(100, val));
+  selectedMinScore = val;
+  // 빠른 선택 버튼 활성화 표시 동기화
+  syncScorePills(val);
+});
+scoreInput.addEventListener('blur', (e) => {
+  // 비어있거나 잘못된 값이면 80으로 복원
+  let val = parseInt(e.target.value);
+  if (isNaN(val) || val < 0) {
+    e.target.value = 80;
+    selectedMinScore = 80;
+    syncScorePills(80);
+  } else if (val > 100) {
+    e.target.value = 100;
+    selectedMinScore = 100;
+    syncScorePills(100);
+  }
+});
+
+function setMinScore(score) {
+  selectedMinScore = score;
+  scoreInput.value = score;
+  syncScorePills(score);
+}
+
+function syncScorePills(score) {
+  document.querySelectorAll('#score-pills .pill').forEach(p => {
+    p.classList.toggle('active', parseInt(p.dataset.score) === score);
+  });
+}
 
 // === 고정/최근 종목 관리 ===
 const PINNED_TICKERS = [
