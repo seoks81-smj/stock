@@ -170,6 +170,68 @@ def fetch_ohlcv_cached(ticker):
     return None
 
 
+# ============================================================
+# 시가총액 캐시
+# ============================================================
+
+_market_cap_cache = {}
+_market_cap_cache_time = 0
+_market_cap_lock = threading.Lock()
+MARKET_CAP_TTL = 3600  # 1시간
+
+
+def get_market_cap_map():
+    """전체 종목 시가총액 맵 가져오기 (단위: 억원)"""
+    global _market_cap_cache, _market_cap_cache_time
+    now = time.time()
+
+    with _market_cap_lock:
+        if _market_cap_cache and (now - _market_cap_cache_time) < MARKET_CAP_TTL:
+            return _market_cap_cache
+
+        result = {}
+
+        # 1차: pykrx
+        for days_back in range(0, 8):
+            try_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+            try:
+                df = stock.get_market_cap(try_date)
+                if df is not None and len(df) > 0:
+                    for ticker, row in df.iterrows():
+                        mc = row.get("시가총액", 0)
+                        if mc and mc > 0:
+                            result[ticker] = int(mc / 100_000_000)  # 원 → 억원
+                    if result:
+                        print(f"✅ pykrx 시가총액 ({try_date}): {len(result)}개")
+                        break
+            except Exception:
+                continue
+
+        # 2차: FDR 폴백
+        if not result and HAS_FDR:
+            try:
+                for market in ["KOSPI", "KOSDAQ"]:
+                    df = fdr.StockListing(market)
+                    for _, row in df.iterrows():
+                        code = str(row["Code"]).zfill(6)
+                        mc = row.get("Marcap", 0)
+                        if mc and mc > 0:
+                            result[code] = int(mc / 100_000_000)
+                if result:
+                    print(f"✅ FDR 시가총액: {len(result)}개")
+            except Exception as e:
+                print(f"FDR 시가총액 실패: {e}")
+
+        _market_cap_cache = result
+        _market_cap_cache_time = now
+        return result
+
+
+def get_market_cap(ticker):
+    """단일 종목 시가총액 (억원)"""
+    return get_market_cap_map().get(ticker, 0)
+
+
 @lru_cache(maxsize=3000)
 def get_ticker_name_cached(ticker):
     # 1차: pykrx
@@ -397,6 +459,7 @@ def analyze_pullback(df, ticker_name="", ticker="", include_chart=True):
         "ma120": int(latest["ma120"]),
         "rsi": round(float(latest["rsi"]), 1) if pd.notna(latest["rsi"]) else None,
         "volume": int(latest["volume"]),
+        "market_cap": get_market_cap(ticker),  # 시가총액 (억원)
         "reasons": reasons,
         "warnings": warnings,
         "stop_loss": int(latest["ma20"] * 0.97),
@@ -431,8 +494,10 @@ def get_grade(score):
         return {"label": "비추천", "color": "#e74c3c"}
 
 
-def background_scan(job_id, market, min_score):
-    """백그라운드에서 실행되는 전종목 스캔"""
+def background_scan(job_id, market, min_score, min_cap=0, max_cap=0):
+    """백그라운드에서 실행되는 전종목 스캔
+    min_cap, max_cap: 시가총액 필터 (억원, 0이면 무시)
+    """
     try:
         with SCAN_LOCK:
             SCAN_JOBS[job_id]["status"] = "fetching_tickers"
@@ -448,6 +513,31 @@ def background_scan(job_id, market, min_score):
                     "평일 저녁에 다시 시도해주세요."
                 )
             return
+
+        # 시가총액 사전 필터링 (분석 시간 절약)
+        if min_cap > 0 or max_cap > 0:
+            cap_map = get_market_cap_map()
+            filtered = []
+            for t in tickers:
+                cap = cap_map.get(t, 0)
+                if cap == 0:
+                    continue  # 시가총액 정보 없으면 제외
+                if min_cap > 0 and cap < min_cap:
+                    continue
+                if max_cap > 0 and cap > max_cap:
+                    continue
+                filtered.append(t)
+            tickers = filtered
+            print(f"✅ 시가총액 필터 적용: {len(tickers)}개 (범위: {min_cap}~{max_cap}억)")
+
+            if not tickers:
+                with SCAN_LOCK:
+                    SCAN_JOBS[job_id]["status"] = "error"
+                    SCAN_JOBS[job_id]["error"] = (
+                        f"시가총액 {min_cap}~{max_cap}억 범위에 해당하는 종목이 없습니다. "
+                        "범위를 넓혀서 다시 시도하세요."
+                    )
+                return
 
         total = len(tickers)
         with SCAN_LOCK:
@@ -493,7 +583,7 @@ def background_scan(job_id, market, min_score):
             SCAN_JOBS[job_id]["results"] = results
             SCAN_JOBS[job_id]["completed_at"] = datetime.now().isoformat()
 
-        cache_file = CACHE_DIR / f"scan_{market}_{min_score}.json"
+        cache_file = CACHE_DIR / f"scan_{market}_{min_score}_{min_cap}_{max_cap}.json"
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump({
                 "results": results,
@@ -501,6 +591,8 @@ def background_scan(job_id, market, min_score):
                 "total": total,
                 "market": market,
                 "min_score": min_score,
+                "min_cap": min_cap,
+                "max_cap": max_cap,
             }, f, ensure_ascii=False)
 
     except Exception as e:
@@ -762,6 +854,8 @@ def scan_start():
     data = request.get_json() or {}
     market = data.get("market", "ALL")
     min_score = int(data.get("min_score", 60))
+    min_cap = int(data.get("min_cap", 0))   # 시가총액 최소 (억원)
+    max_cap = int(data.get("max_cap", 0))   # 시가총액 최대 (억원, 0이면 무제한)
 
     with SCAN_LOCK:
         for jid, job in SCAN_JOBS.items():
@@ -772,7 +866,9 @@ def scan_start():
                     "existing": True
                 }), 200
 
-        cache_file = CACHE_DIR / f"scan_{market}_{min_score}.json"
+        # 캐시 키에 시가총액 조건 포함
+        cache_key = f"scan_{market}_{min_score}_{min_cap}_{max_cap}"
+        cache_file = CACHE_DIR / f"{cache_key}.json"
         if cache_file.exists():
             with open(cache_file, "r", encoding="utf-8") as f:
                 cached = json.load(f)
@@ -791,6 +887,8 @@ def scan_start():
                     "elapsed": 0,
                     "market": market,
                     "min_score": min_score,
+                    "min_cap": min_cap,
+                    "max_cap": max_cap,
                 }
                 return jsonify({"job_id": job_id, "from_cache": True, "cached_at": cached["completed_at"]})
 
@@ -799,6 +897,8 @@ def scan_start():
             "status": "starting",
             "market": market,
             "min_score": min_score,
+            "min_cap": min_cap,
+            "max_cap": max_cap,
             "total": 0,
             "processed": 0,
             "found": 0,
@@ -807,7 +907,7 @@ def scan_start():
 
     thread = threading.Thread(
         target=background_scan,
-        args=(job_id, market, min_score),
+        args=(job_id, market, min_score, min_cap, max_cap),
         daemon=True
     )
     thread.start()
