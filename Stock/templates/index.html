@@ -395,6 +395,48 @@
     font-size: 11px;
   }
 
+  /* 시가총액 자유 입력 */
+  .cap-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .cap-input {
+    width: 90px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-bright);
+    color: var(--text-primary);
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: right;
+    -moz-appearance: textfield;
+  }
+  .cap-input::-webkit-outer-spin-button,
+  .cap-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .cap-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .cap-input::placeholder { color: var(--text-dim); }
+  .cap-separator { color: var(--text-secondary); font-size: 13px; }
+  .cap-suffix { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
+  .cap-quick-pills {
+    margin-top: 4px;
+  }
+  .cap-quick-pills .pill {
+    padding: 5px 11px;
+    font-size: 11px;
+  }
+
   .scan-warning {
     background: rgba(244,208,63,0.06);
     border: 1px solid rgba(244,208,63,0.15);
@@ -1005,6 +1047,23 @@
           <button class="pill" data-score="90">90</button>
         </div>
       </div>
+      <div class="scan-option-group">
+        <div class="scan-option-label">시가총액 (억원)</div>
+        <div class="cap-input-row">
+          <input type="number" class="cap-input" id="cap-min-input"
+                 placeholder="최소" min="0" step="100" value="300">
+          <span class="cap-separator">~</span>
+          <input type="number" class="cap-input" id="cap-max-input"
+                 placeholder="최대" min="0" step="100" value="5000">
+          <span class="cap-suffix">억</span>
+        </div>
+        <div class="pill-group cap-quick-pills" id="cap-pills">
+          <button class="pill" data-min="0" data-max="0">전체</button>
+          <button class="pill" data-min="100" data-max="1000">소형 100~1천억</button>
+          <button class="pill active" data-min="300" data-max="5000">300~5천억</button>
+          <button class="pill" data-min="1000" data-max="10000">중형 1천억~1조</button>
+        </div>
+      </div>
     </div>
 
     <div class="scan-warning">
@@ -1064,6 +1123,8 @@ let currentJobId = null;
 let pollInterval = null;
 let selectedMarket = 'ALL';
 let selectedMinScore = 80;
+let selectedMinCap = 300;   // 시가총액 최소 (억원, 기본 300억)
+let selectedMaxCap = 5000;  // 시가총액 최대 (억원, 기본 5000억)
 
 // === 인증 처리 ===
 async function checkAuth() {
@@ -1230,6 +1291,44 @@ function setMinScore(score) {
 function syncScorePills(score) {
   document.querySelectorAll('#score-pills .pill').forEach(p => {
     p.classList.toggle('active', parseInt(p.dataset.score) === score);
+  });
+}
+
+// === 시가총액 입력 ===
+const capMinInput = document.getElementById('cap-min-input');
+const capMaxInput = document.getElementById('cap-max-input');
+
+function getCapValue(input) {
+  const v = parseInt(input.value);
+  return isNaN(v) || v < 0 ? 0 : v;
+}
+
+capMinInput.addEventListener('input', () => {
+  selectedMinCap = getCapValue(capMinInput);
+  syncCapPills();
+});
+capMaxInput.addEventListener('input', () => {
+  selectedMaxCap = getCapValue(capMaxInput);
+  syncCapPills();
+});
+
+document.querySelectorAll('#cap-pills .pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    const min = parseInt(pill.dataset.min);
+    const max = parseInt(pill.dataset.max);
+    selectedMinCap = min;
+    selectedMaxCap = max;
+    capMinInput.value = min > 0 ? min : '';
+    capMaxInput.value = max > 0 ? max : '';
+    syncCapPills();
+  });
+});
+
+function syncCapPills() {
+  document.querySelectorAll('#cap-pills .pill').forEach(p => {
+    const isMatch = parseInt(p.dataset.min) === selectedMinCap &&
+                    parseInt(p.dataset.max) === selectedMaxCap;
+    p.classList.toggle('active', isMatch);
   });
 }
 
@@ -1485,7 +1584,12 @@ async function startScan() {
     const res = await fetch(`${API_BASE}/api/scan/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ market: selectedMarket, min_score: selectedMinScore })
+      body: JSON.stringify({
+        market: selectedMarket,
+        min_score: selectedMinScore,
+        min_cap: selectedMinCap,
+        max_cap: selectedMaxCap
+      })
     });
     const data = await res.json();
 
@@ -1642,6 +1746,7 @@ function onScanCompleted(data, fromCache) {
           <div class="scan-stock-name">${r.name}</div>
           <div class="scan-stock-meta">
             <span>${r.ticker}</span>
+            ${r.market_cap ? `<span>시총 ${formatMarketCap(r.market_cap)}</span>` : ''}
             <span>조정 -${r.pullback_pct}%</span>
             <span>RSI ${r.rsi || '-'}</span>
           </div>
@@ -1772,6 +1877,17 @@ function showError(msg) {
 }
 function fmt(n) { return n.toLocaleString('ko-KR'); }
 
+function formatMarketCap(billion) {
+  // billion = 억원 단위
+  if (!billion || billion === 0) return '-';
+  if (billion >= 10000) {
+    // 1조 이상
+    const jo = billion / 10000;
+    return jo >= 100 ? jo.toFixed(0) + '조' : jo.toFixed(1) + '조';
+  }
+  return billion.toLocaleString('ko-KR') + '억';
+}
+
 // === Result Render (단일/일괄용 상세 카드) ===
 function renderResult(r) {
   const score = r.score;
@@ -1828,6 +1944,7 @@ function renderResult(r) {
       <div class="stat"><div class="stat-label">20일선 MA20</div><div class="stat-value">${fmt(r.ma20)}</div></div>
       <div class="stat"><div class="stat-label">60일선 MA60</div><div class="stat-value">${fmt(r.ma60)}</div></div>
       <div class="stat"><div class="stat-label">RSI 14</div><div class="stat-value">${r.rsi || '-'}</div></div>
+      ${r.market_cap ? `<div class="stat"><div class="stat-label">시가총액</div><div class="stat-value">${formatMarketCap(r.market_cap)}</div></div>` : ''}
     </div>
 
     ${r.chart ? `
