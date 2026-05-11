@@ -1,10 +1,6 @@
 """
-눌림목 스크리너 - Flask 백엔드 v2
-====================================
-v2 추가 기능:
-- 전종목 스캔 (백그라운드 비동기 작업)
-- 진행 상황 실시간 조회
-- 결과 캐싱 (1시간)
+눌림목 스크리너 - Flask 백엔드
+Supabase 기반 관리자 인증 포함
 """
 
 import os
@@ -23,12 +19,28 @@ from flask import Flask, jsonify, render_template, request, make_response
 from flask_cors import CORS
 from pykrx import stock
 
-# FinanceDataReader 폴백 (pykrx 안될 때 대체)
+# FinanceDataReader 폴백
 try:
     import FinanceDataReader as fdr
     HAS_FDR = True
 except ImportError:
     HAS_FDR = False
+
+# Supabase
+try:
+    from supabase import create_client, Client
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+    if SUPABASE_URL and SUPABASE_KEY:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        HAS_SUPABASE = True
+        print("✅ Supabase 연결 성공")
+    else:
+        HAS_SUPABASE = False
+        print("⚠️ Supabase 환경변수 없음 - 인증 비활성화")
+except Exception as e:
+    HAS_SUPABASE = False
+    print(f"⚠️ Supabase 연결 실패: {e}")
     print("FinanceDataReader 미설치 - pykrx만 사용")
 
 
@@ -36,32 +48,70 @@ app = Flask(__name__)
 CORS(app)
 
 # ============================================================
-# 비밀번호 인증
+# 인증 시스템 (Supabase 기반)
 # ============================================================
 
-# 환경변수 APP_PASSWORD에서 읽음. 없으면 인증 비활성화 (개발용)
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
-AUTH_ENABLED = bool(APP_PASSWORD)
-TOKEN_LIFETIME_HOURS = 24  # 토큰 유효 기간
-
-# 유효한 토큰 저장 (메모리)
-_valid_tokens = {}  # token -> expiry_timestamp
+TOKEN_LIFETIME_HOURS = 24
+_valid_tokens = {}
 _tokens_lock = threading.Lock()
 
 
 def hash_password(password):
-    """비밀번호 해시 (간단한 방식)"""
+    """비밀번호 SHA-256 해시"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
 def generate_token():
-    """랜덤 토큰 생성"""
     return secrets.token_urlsafe(32)
 
 
+# --- Supabase DB 연동 ---
+
+def db_get_auth():
+    """DB에서 인증 정보 조회"""
+    try:
+        res = supabase.table("admin_auth").select("*").limit(1).execute()
+        if res.data:
+            return res.data[0]
+    except Exception as e:
+        print(f"DB 조회 실패: {e}")
+    return None
+
+
+def db_is_initialized():
+    """비밀번호가 초기 설정됐는지 확인"""
+    if not HAS_SUPABASE:
+        return True  # Supabase 없으면 인증 비활성화
+    auth = db_get_auth()
+    return auth and auth.get("is_initialized", False)
+
+
+def db_check_password(password):
+    """비밀번호 확인"""
+    auth = db_get_auth()
+    if not auth:
+        return False
+    return auth.get("password_hash") == hash_password(password)
+
+
+def db_set_password(new_password):
+    """비밀번호 설정/변경"""
+    try:
+        supabase.table("admin_auth").update({
+            "password_hash": hash_password(new_password),
+            "is_initialized": True,
+            "updated_at": datetime.now().isoformat()
+        }).eq("id", 1).execute()
+        return True
+    except Exception as e:
+        print(f"비밀번호 변경 실패: {e}")
+        return False
+
+
+# --- 토큰 관리 ---
+
 def is_token_valid(token):
-    """토큰 유효성 검사"""
-    if not AUTH_ENABLED:
+    if not HAS_SUPABASE:
         return True
     if not token:
         return False
@@ -70,14 +120,12 @@ def is_token_valid(token):
         if expiry is None:
             return False
         if time.time() > expiry:
-            # 만료된 토큰 정리
             del _valid_tokens[token]
             return False
         return True
 
 
 def cleanup_expired_tokens():
-    """만료된 토큰 정리 (백그라운드)"""
     with _tokens_lock:
         now = time.time()
         expired = [t for t, exp in _valid_tokens.items() if exp < now]
@@ -86,10 +134,9 @@ def cleanup_expired_tokens():
 
 
 def require_auth(f):
-    """인증 필요 데코레이터"""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not AUTH_ENABLED:
+        if not HAS_SUPABASE:
             return f(*args, **kwargs)
         token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
         if not is_token_valid(token):
@@ -630,32 +677,59 @@ def health():
 
 @app.route("/api/auth/check")
 def auth_check():
-    """현재 인증 상태 확인"""
-    if not AUTH_ENABLED:
+    """인증 상태 + 초기화 여부 확인"""
+    if not HAS_SUPABASE:
         return jsonify({"auth_enabled": False, "authenticated": True})
     token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
+    initialized = db_is_initialized()
     return jsonify({
         "auth_enabled": True,
-        "authenticated": is_token_valid(token)
+        "authenticated": is_token_valid(token),
+        "initialized": initialized  # 최초 비밀번호 설정 여부
     })
+
+
+@app.route("/api/auth/setup", methods=["POST"])
+def auth_setup():
+    """최초 비밀번호 설정 (DB 미초기화 상태에서만 가능)"""
+    if not HAS_SUPABASE:
+        return jsonify({"success": True})
+    if db_is_initialized():
+        return jsonify({"success": False, "error": "이미 초기화된 상태입니다"}), 400
+
+    data = request.get_json() or {}
+    password = data.get("password", "")
+    if len(password) < 4:
+        return jsonify({"success": False, "error": "비밀번호는 4자 이상이어야 합니다"}), 400
+
+    if not db_set_password(password):
+        return jsonify({"success": False, "error": "비밀번호 설정 실패"}), 500
+
+    # 설정 후 자동 로그인
+    token = generate_token()
+    expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
+    with _tokens_lock:
+        _valid_tokens[token] = expiry
+
+    response = make_response(jsonify({"success": True, "token": token}))
+    response.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
+    return response
 
 
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
-    """비밀번호 로그인"""
-    if not AUTH_ENABLED:
-        return jsonify({"success": True, "message": "인증 비활성화 상태"})
+    """로그인"""
+    if not HAS_SUPABASE:
+        return jsonify({"success": True})
 
     data = request.get_json() or {}
     password = data.get("password", "")
 
-    # 약간의 딜레이 (브루트포스 방지)
-    time.sleep(0.5)
+    time.sleep(0.5)  # 브루트포스 방지
 
-    if password != APP_PASSWORD:
+    if not db_check_password(password):
         return jsonify({"success": False, "error": "비밀번호가 올바르지 않습니다"}), 401
 
-    # 토큰 발급
     token = generate_token()
     expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
     with _tokens_lock:
@@ -667,13 +741,38 @@ def auth_login():
         "token": token,
         "expires_in_hours": TOKEN_LIFETIME_HOURS
     }))
-    response.set_cookie(
-        "auth_token", token,
-        max_age=TOKEN_LIFETIME_HOURS * 3600,
-        httponly=False,  # JS에서 접근 가능 (간단한 구현)
-        samesite="Lax",
-    )
+    response.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
     return response
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+@require_auth
+def auth_change_password():
+    """비밀번호 변경 (로그인 상태에서만 가능)"""
+    if not HAS_SUPABASE:
+        return jsonify({"success": True})
+
+    data = request.get_json() or {}
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+
+    if not db_check_password(current_password):
+        return jsonify({"success": False, "error": "현재 비밀번호가 올바르지 않습니다"}), 401
+
+    if len(new_password) < 4:
+        return jsonify({"success": False, "error": "새 비밀번호는 4자 이상이어야 합니다"}), 400
+
+    if current_password == new_password:
+        return jsonify({"success": False, "error": "현재 비밀번호와 동일합니다"}), 400
+
+    if not db_set_password(new_password):
+        return jsonify({"success": False, "error": "비밀번호 변경 실패"}), 500
+
+    # 모든 기존 토큰 무효화 (보안)
+    with _tokens_lock:
+        _valid_tokens.clear()
+
+    return jsonify({"success": True, "message": "비밀번호가 변경됐습니다. 다시 로그인해주세요."})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
