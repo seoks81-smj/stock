@@ -3,5 +3,4 @@ flask-cors==4.0.0
 pykrx>=1.0.45
 finance-datareader>=0.9.50
 pandas>=2.0.0
-supabase>=2.0.0
 gunicorn==21.2.0

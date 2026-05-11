@@ -1,15 +1,18 @@
 """
 눌림목 스크리너 - Flask 백엔드
-Supabase 기반 관리자 인증 포함
+GitHub 파일 기반 관리자 인증
 """
 
 import os
 import time
 import json
 import uuid
+import base64
 import hashlib
 import secrets
 import threading
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from functools import lru_cache, wraps
 from pathlib import Path
@@ -25,22 +28,6 @@ try:
     HAS_FDR = True
 except ImportError:
     HAS_FDR = False
-
-# Supabase
-try:
-    from supabase import create_client, Client
-    SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-    if SUPABASE_URL and SUPABASE_KEY:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        HAS_SUPABASE = True
-        print("✅ Supabase 연결 성공")
-    else:
-        HAS_SUPABASE = False
-        print("⚠️ Supabase 환경변수 없음 - 인증 비활성화")
-except Exception as e:
-    HAS_SUPABASE = False
-    print(f"⚠️ Supabase 연결 실패: {e}")
     print("FinanceDataReader 미설치 - pykrx만 사용")
 
 
@@ -48,70 +35,120 @@ app = Flask(__name__)
 CORS(app)
 
 # ============================================================
-# 인증 시스템 (Supabase 기반)
+# GitHub 파일 기반 인증
 # ============================================================
 
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
+GITHUB_FILE  = "Stock/password.json"   # 저장소 내 비밀번호 파일 경로
+AUTH_ENABLED = bool(GITHUB_TOKEN and GITHUB_REPO)
 TOKEN_LIFETIME_HOURS = 24
+
 _valid_tokens = {}
-_tokens_lock = threading.Lock()
+_tokens_lock  = threading.Lock()
+
+# 비밀번호 파일 내용 메모리 캐시 (서버 재시작 시 GitHub에서 재로딩)
+_pw_cache      = None
+_pw_cache_lock = threading.Lock()
 
 
-def hash_password(password):
-    """비밀번호 SHA-256 해시"""
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_password(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
 
 
-def generate_token():
-    return secrets.token_urlsafe(32)
-
-
-# --- Supabase DB 연동 ---
-
-def db_get_auth():
-    """DB에서 인증 정보 조회"""
+def _github_api(method: str, path: str, body: dict = None):
+    """GitHub Contents API 호출 (표준 라이브러리만 사용)"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+        "User-Agent": "pullback-screener",
+    }
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        res = supabase.table("admin_auth").select("*").limit(1).execute()
-        if res.data:
-            return res.data[0]
-    except Exception as e:
-        print(f"DB 조회 실패: {e}")
-    return None
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return json.loads(res.read().decode())
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode()
+        raise RuntimeError(f"GitHub API {e.code}: {body_text}")
 
 
-def db_is_initialized():
-    """비밀번호가 초기 설정됐는지 확인"""
-    if not HAS_SUPABASE:
-        return True  # Supabase 없으면 인증 비활성화
-    auth = db_get_auth()
-    return auth and auth.get("is_initialized", False)
-
-
-def db_check_password(password):
-    """비밀번호 확인"""
-    auth = db_get_auth()
-    if not auth:
-        return False
-    return auth.get("password_hash") == hash_password(password)
-
-
-def db_set_password(new_password):
-    """비밀번호 설정/변경"""
+def gh_read_password_file():
+    """GitHub에서 비밀번호 파일 읽기. 없으면 None 반환."""
     try:
-        supabase.table("admin_auth").update({
-            "password_hash": hash_password(new_password),
-            "is_initialized": True,
-            "updated_at": datetime.now().isoformat()
-        }).eq("id", 1).execute()
-        return True
-    except Exception as e:
-        print(f"비밀번호 변경 실패: {e}")
+        data = _github_api("GET", GITHUB_FILE)
+        content = base64.b64decode(data["content"]).decode()
+        parsed = json.loads(content)
+        parsed["_sha"] = data["sha"]   # 업데이트 시 필요
+        return parsed
+    except RuntimeError as e:
+        if "404" in str(e):
+            return None   # 파일 없음 = 미초기화
+        raise
+
+
+def gh_write_password_file(pw_hash: str, sha: str = None):
+    """GitHub에 비밀번호 파일 쓰기 (생성 or 업데이트)"""
+    content = base64.b64encode(json.dumps({
+        "password_hash": pw_hash,
+        "updated_at": datetime.now().isoformat(),
+    }).encode()).decode()
+
+    body = {
+        "message": "Update admin password",
+        "content": content,
+    }
+    if sha:
+        body["sha"] = sha   # 기존 파일 업데이트 시 필요
+
+    _github_api("PUT", GITHUB_FILE, body)
+
+
+def load_pw_data():
+    """비밀번호 데이터 로드 (메모리 캐시 우선)"""
+    global _pw_cache
+    with _pw_cache_lock:
+        if _pw_cache is not None:
+            return _pw_cache
+        if not AUTH_ENABLED:
+            return None
+        try:
+            _pw_cache = gh_read_password_file()
+        except Exception as e:
+            print(f"비밀번호 파일 로드 실패: {e}")
+            _pw_cache = None
+        return _pw_cache
+
+
+def invalidate_pw_cache():
+    """비밀번호 캐시 초기화 (변경 후 호출)"""
+    global _pw_cache
+    with _pw_cache_lock:
+        _pw_cache = None
+
+
+def is_initialized():
+    data = load_pw_data()
+    return data is not None and bool(data.get("password_hash"))
+
+
+def check_password(pw: str) -> bool:
+    data = load_pw_data()
+    if not data:
         return False
+    return data.get("password_hash") == hash_password(pw)
 
 
 # --- 토큰 관리 ---
 
-def is_token_valid(token):
-    if not HAS_SUPABASE:
+def generate_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def is_token_valid(token: str) -> bool:
+    if not AUTH_ENABLED:
         return True
     if not token:
         return False
@@ -128,15 +165,23 @@ def is_token_valid(token):
 def cleanup_expired_tokens():
     with _tokens_lock:
         now = time.time()
-        expired = [t for t, exp in _valid_tokens.items() if exp < now]
-        for t in expired:
+        for t in [t for t, e in _valid_tokens.items() if e < now]:
             del _valid_tokens[t]
+
+
+def issue_token() -> str:
+    token  = generate_token()
+    expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
+    with _tokens_lock:
+        _valid_tokens[token] = expiry
+        cleanup_expired_tokens()
+    return token
 
 
 def require_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not HAS_SUPABASE:
+        if not AUTH_ENABLED:
             return f(*args, **kwargs)
         token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
         if not is_token_valid(token):
@@ -677,98 +722,85 @@ def health():
 
 @app.route("/api/auth/check")
 def auth_check():
-    """인증 상태 + 초기화 여부 확인"""
-    if not HAS_SUPABASE:
+    if not AUTH_ENABLED:
         return jsonify({"auth_enabled": False, "authenticated": True})
     token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
-    initialized = db_is_initialized()
     return jsonify({
         "auth_enabled": True,
         "authenticated": is_token_valid(token),
-        "initialized": initialized  # 최초 비밀번호 설정 여부
+        "initialized": is_initialized(),
     })
 
 
 @app.route("/api/auth/setup", methods=["POST"])
 def auth_setup():
-    """최초 비밀번호 설정 (DB 미초기화 상태에서만 가능)"""
-    if not HAS_SUPABASE:
+    """최초 비밀번호 설정"""
+    if not AUTH_ENABLED:
         return jsonify({"success": True})
-    if db_is_initialized():
+    if is_initialized():
         return jsonify({"success": False, "error": "이미 초기화된 상태입니다"}), 400
 
     data = request.get_json() or {}
-    password = data.get("password", "")
-    if len(password) < 4:
+    pw = data.get("password", "")
+    if len(pw) < 4:
         return jsonify({"success": False, "error": "비밀번호는 4자 이상이어야 합니다"}), 400
 
-    if not db_set_password(password):
-        return jsonify({"success": False, "error": "비밀번호 설정 실패"}), 500
+    try:
+        gh_write_password_file(hash_password(pw))
+        invalidate_pw_cache()
+    except Exception as e:
+        return jsonify({"success": False, "error": f"저장 실패: {e}"}), 500
 
-    # 설정 후 자동 로그인
-    token = generate_token()
-    expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
-    with _tokens_lock:
-        _valid_tokens[token] = expiry
-
-    response = make_response(jsonify({"success": True, "token": token}))
-    response.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
-    return response
+    token = issue_token()
+    res = make_response(jsonify({"success": True, "token": token}))
+    res.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
+    return res
 
 
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
-    """로그인"""
-    if not HAS_SUPABASE:
+    if not AUTH_ENABLED:
         return jsonify({"success": True})
 
     data = request.get_json() or {}
-    password = data.get("password", "")
-
+    pw = data.get("password", "")
     time.sleep(0.5)  # 브루트포스 방지
 
-    if not db_check_password(password):
+    if not check_password(pw):
         return jsonify({"success": False, "error": "비밀번호가 올바르지 않습니다"}), 401
 
-    token = generate_token()
-    expiry = time.time() + TOKEN_LIFETIME_HOURS * 3600
-    with _tokens_lock:
-        _valid_tokens[token] = expiry
-        cleanup_expired_tokens()
-
-    response = make_response(jsonify({
-        "success": True,
-        "token": token,
-        "expires_in_hours": TOKEN_LIFETIME_HOURS
-    }))
-    response.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
-    return response
+    token = issue_token()
+    res = make_response(jsonify({"success": True, "expires_in_hours": TOKEN_LIFETIME_HOURS}))
+    res.set_cookie("auth_token", token, max_age=TOKEN_LIFETIME_HOURS * 3600, samesite="Lax")
+    return res
 
 
 @app.route("/api/auth/change-password", methods=["POST"])
 @require_auth
 def auth_change_password():
-    """비밀번호 변경 (로그인 상태에서만 가능)"""
-    if not HAS_SUPABASE:
+    if not AUTH_ENABLED:
         return jsonify({"success": True})
 
     data = request.get_json() or {}
-    current_password = data.get("current_password", "")
-    new_password = data.get("new_password", "")
+    current_pw = data.get("current_password", "")
+    new_pw = data.get("new_password", "")
 
-    if not db_check_password(current_password):
+    if not check_password(current_pw):
         return jsonify({"success": False, "error": "현재 비밀번호가 올바르지 않습니다"}), 401
-
-    if len(new_password) < 4:
+    if len(new_pw) < 4:
         return jsonify({"success": False, "error": "새 비밀번호는 4자 이상이어야 합니다"}), 400
-
-    if current_password == new_password:
+    if current_pw == new_pw:
         return jsonify({"success": False, "error": "현재 비밀번호와 동일합니다"}), 400
 
-    if not db_set_password(new_password):
-        return jsonify({"success": False, "error": "비밀번호 변경 실패"}), 500
+    try:
+        pw_data = load_pw_data()
+        sha = pw_data.get("_sha") if pw_data else None
+        gh_write_password_file(hash_password(new_pw), sha=sha)
+        invalidate_pw_cache()
+    except Exception as e:
+        return jsonify({"success": False, "error": f"변경 실패: {e}"}), 500
 
-    # 모든 기존 토큰 무효화 (보안)
+    # 모든 토큰 무효화
     with _tokens_lock:
         _valid_tokens.clear()
 
@@ -777,14 +809,13 @@ def auth_change_password():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def auth_logout():
-    """로그아웃"""
     token = request.cookies.get("auth_token") or request.headers.get("X-Auth-Token")
     if token:
         with _tokens_lock:
             _valid_tokens.pop(token, None)
-    response = make_response(jsonify({"success": True}))
-    response.set_cookie("auth_token", "", max_age=0)
-    return response
+    res = make_response(jsonify({"success": True}))
+    res.set_cookie("auth_token", "", max_age=0)
+    return res
 
 
 @app.route("/api/analyze/<ticker>")
