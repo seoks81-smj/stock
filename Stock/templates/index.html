@@ -940,27 +940,63 @@
 </head>
 <body>
 
-<!-- 로그인 모달 -->
+<!-- 최초 설정 화면 (비밀번호 미설정 시) -->
+<div class="login-overlay hidden" id="setup-overlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark">P</div>
+      <div>
+        <div class="login-title">눌림목 스크리너</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);letter-spacing:0.1em;margin-top:2px;">PULLBACK SCREENER</div>
+      </div>
+    </div>
+    <div class="login-subtitle">
+      처음 접속하셨네요! 🎉<br>
+      사용할 비밀번호를 설정해주세요.
+    </div>
+    <input type="password" class="login-input" id="setup-password" placeholder="새 비밀번호 (4자 이상)" autocomplete="new-password">
+    <input type="password" class="login-input" id="setup-password-confirm" placeholder="비밀번호 확인" autocomplete="new-password" style="margin-top:8px;">
+    <div class="login-error" id="setup-error"></div>
+    <button class="login-btn" id="setup-btn">비밀번호 설정하기</button>
+    <div class="login-hint">설정 후 자동으로 로그인됩니다.</div>
+  </div>
+</div>
+
+<!-- 로그인 화면 -->
 <div class="login-overlay hidden" id="login-overlay">
   <div class="login-card">
     <div class="login-logo">
       <div class="logo-mark">P</div>
       <div>
         <div class="login-title">눌림목 스크리너</div>
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; margin-top: 2px;">PULLBACK SCREENER</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);letter-spacing:0.1em;margin-top:2px;">PULLBACK SCREENER</div>
       </div>
     </div>
     <div class="login-subtitle">
       이 사이트는 비공개입니다.<br>
       비밀번호를 입력해주세요.
     </div>
-    <input type="password" class="login-input" id="login-password"
-           placeholder="비밀번호" autocomplete="current-password">
+    <input type="password" class="login-input" id="login-password" placeholder="비밀번호" autocomplete="current-password">
     <div class="login-error" id="login-error"></div>
     <button class="login-btn" id="login-btn">접속하기</button>
-    <div class="login-hint">
-      한 번 입력하면 24시간 동안 자동 유지됩니다.
+    <div class="login-hint">한 번 입력하면 24시간 동안 자동 유지됩니다.</div>
+  </div>
+</div>
+
+<!-- 비밀번호 변경 모달 -->
+<div class="login-overlay hidden" id="change-pw-overlay">
+  <div class="login-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <div style="font-size:16px;font-weight:800;">🔑 비밀번호 변경</div>
+      <button onclick="hideChangePw()" style="background:transparent;border:none;color:var(--text-dim);font-size:20px;cursor:pointer;">✕</button>
     </div>
+    <input type="password" class="login-input" id="current-password" placeholder="현재 비밀번호" autocomplete="current-password">
+    <input type="password" class="login-input" id="new-password" placeholder="새 비밀번호 (4자 이상)" autocomplete="new-password" style="margin-top:8px;">
+    <input type="password" class="login-input" id="new-password-confirm" placeholder="새 비밀번호 확인" autocomplete="new-password" style="margin-top:8px;">
+    <div class="login-error" id="change-pw-error"></div>
+    <div style="color:#4caf50;font-size:12px;min-height:16px;margin-bottom:12px;" id="change-pw-success"></div>
+    <button class="login-btn" id="change-pw-btn">비밀번호 변경</button>
+    <div class="login-hint">변경 후 다시 로그인이 필요합니다.</div>
   </div>
 </div>
 
@@ -973,11 +1009,12 @@
         <span class="en">Pullback Screener</span>
       </div>
     </div>
-    <div style="display: flex; align-items: center;">
+    <div style="display: flex; align-items: center; gap: 8px;">
       <div class="status-pill">
         <span class="pulse"></span>
         <span>KRX Live</span>
       </div>
+      <button class="logout-btn" id="change-pw-trigger" style="display:none;" title="비밀번호 변경">🔑</button>
       <button class="logout-btn" id="logout-btn" style="display: none;" title="로그아웃">로그아웃</button>
     </div>
   </div>
@@ -1126,19 +1163,25 @@ let selectedMinScore = 80;
 let selectedMinCap = 300;   // 시가총액 최소 (억원, 기본 300억)
 let selectedMaxCap = 5000;  // 시가총액 최대 (억원, 기본 5000억)
 
-// === 인증 처리 ===
+// ============================================================
+// 인증 처리 (Supabase 기반)
+// ============================================================
+
 async function checkAuth() {
   try {
     const res = await fetch(`${API_BASE}/api/auth/check`);
     const data = await res.json();
     if (!data.auth_enabled) {
-      // 인증 비활성화 (개발 환경)
-      hideLoginOverlay();
+      hideAllOverlays();
       return true;
     }
+    if (!data.initialized) {
+      showSetupOverlay();
+      return false;
+    }
     if (data.authenticated) {
-      hideLoginOverlay();
-      document.getElementById('logout-btn').style.display = 'inline-block';
+      hideAllOverlays();
+      showAuthButtons();
       return true;
     } else {
       showLoginOverlay();
@@ -1150,46 +1193,84 @@ async function checkAuth() {
   }
 }
 
+function hideAllOverlays() {
+  document.getElementById('setup-overlay').classList.add('hidden');
+  document.getElementById('login-overlay').classList.add('hidden');
+  document.getElementById('change-pw-overlay').classList.add('hidden');
+}
+
+function showSetupOverlay() {
+  hideAllOverlays();
+  document.getElementById('setup-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('setup-password').focus(), 100);
+}
+
 function showLoginOverlay() {
+  hideAllOverlays();
   document.getElementById('login-overlay').classList.remove('hidden');
   setTimeout(() => document.getElementById('login-password').focus(), 100);
 }
 
-function hideLoginOverlay() {
-  document.getElementById('login-overlay').classList.add('hidden');
+function showAuthButtons() {
+  document.getElementById('logout-btn').style.display = 'inline-block';
+  document.getElementById('change-pw-trigger').style.display = 'inline-block';
+}
+
+async function doSetup() {
+  const pw = document.getElementById('setup-password').value;
+  const pw2 = document.getElementById('setup-password-confirm').value;
+  const errorEl = document.getElementById('setup-error');
+  const btn = document.getElementById('setup-btn');
+  if (!pw) { errorEl.textContent = '비밀번호를 입력하세요'; return; }
+  if (pw.length < 4) { errorEl.textContent = '4자 이상 입력하세요'; return; }
+  if (pw !== pw2) { errorEl.textContent = '비밀번호가 일치하지 않습니다'; return; }
+  btn.disabled = true;
+  btn.textContent = '설정 중...';
+  errorEl.textContent = '';
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (data.success) {
+      hideAllOverlays();
+      showAuthButtons();
+    } else {
+      errorEl.textContent = data.error || '설정 실패';
+    }
+  } catch (err) {
+    errorEl.textContent = '서버 연결 오류';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '비밀번호 설정하기';
+  }
 }
 
 async function doLogin() {
-  const pwInput = document.getElementById('login-password');
+  const pw = document.getElementById('login-password').value;
   const errorEl = document.getElementById('login-error');
   const btn = document.getElementById('login-btn');
-  const password = pwInput.value;
-
-  if (!password) {
-    errorEl.textContent = '비밀번호를 입력하세요';
-    return;
-  }
-
+  if (!pw) { errorEl.textContent = '비밀번호를 입력하세요'; return; }
   btn.disabled = true;
   btn.textContent = '확인 중...';
   errorEl.textContent = '';
-
   try {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password: pw })
     });
     const data = await res.json();
-
     if (data.success) {
-      hideLoginOverlay();
-      document.getElementById('logout-btn').style.display = 'inline-block';
-      pwInput.value = '';
+      hideAllOverlays();
+      showAuthButtons();
+      document.getElementById('login-password').value = '';
     } else {
       errorEl.textContent = data.error || '비밀번호가 올바르지 않습니다';
-      pwInput.value = '';
-      pwInput.focus();
+      document.getElementById('login-password').value = '';
+      document.getElementById('login-password').focus();
     }
   } catch (err) {
     errorEl.textContent = '서버 연결 오류';
@@ -1199,33 +1280,89 @@ async function doLogin() {
   }
 }
 
+function showChangePw() {
+  document.getElementById('change-pw-overlay').classList.remove('hidden');
+  document.getElementById('current-password').focus();
+  document.getElementById('change-pw-error').textContent = '';
+  document.getElementById('change-pw-success').textContent = '';
+}
+
+function hideChangePw() {
+  document.getElementById('change-pw-overlay').classList.add('hidden');
+  ['current-password','new-password','new-password-confirm'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+
+async function doChangePw() {
+  const current = document.getElementById('current-password').value;
+  const newPw = document.getElementById('new-password').value;
+  const newPw2 = document.getElementById('new-password-confirm').value;
+  const errorEl = document.getElementById('change-pw-error');
+  const successEl = document.getElementById('change-pw-success');
+  const btn = document.getElementById('change-pw-btn');
+  errorEl.textContent = '';
+  successEl.textContent = '';
+  if (!current) { errorEl.textContent = '현재 비밀번호를 입력하세요'; return; }
+  if (!newPw || newPw.length < 4) { errorEl.textContent = '새 비밀번호는 4자 이상이어야 합니다'; return; }
+  if (newPw !== newPw2) { errorEl.textContent = '새 비밀번호가 일치하지 않습니다'; return; }
+  btn.disabled = true;
+  btn.textContent = '변경 중...';
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, new_password: newPw })
+    });
+    const data = await res.json();
+    if (data.success) {
+      successEl.textContent = '✅ 변경됐습니다! 다시 로그인해주세요.';
+      setTimeout(() => {
+        hideChangePw();
+        showLoginOverlay();
+      }, 1500);
+    } else {
+      errorEl.textContent = data.error || '변경 실패';
+    }
+  } catch (err) {
+    errorEl.textContent = '서버 연결 오류';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '비밀번호 변경';
+  }
+}
+
 async function doLogout() {
   if (!confirm('로그아웃하시겠습니까?')) return;
-  try {
-    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
-  } catch {}
+  try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }); } catch {}
   document.getElementById('logout-btn').style.display = 'none';
+  document.getElementById('change-pw-trigger').style.display = 'none';
   showLoginOverlay();
 }
 
-// 401 응답 시 자동으로 로그인 화면 표시
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
   const response = await originalFetch.apply(this, args);
   if (response.status === 401) {
-    showLoginOverlay();
+    const clone = response.clone();
+    try {
+      const data = await clone.json();
+      if (data.auth_required) showLoginOverlay();
+    } catch {}
   }
   return response;
 };
 
 // 이벤트 바인딩
+document.getElementById('setup-btn').addEventListener('click', doSetup);
+document.getElementById('setup-password').addEventListener('keypress', e => { if (e.key === 'Enter') doSetup(); });
+document.getElementById('setup-password-confirm').addEventListener('keypress', e => { if (e.key === 'Enter') doSetup(); });
 document.getElementById('login-btn').addEventListener('click', doLogin);
-document.getElementById('login-password').addEventListener('keypress', e => {
-  if (e.key === 'Enter') doLogin();
-});
+document.getElementById('login-password').addEventListener('keypress', e => { if (e.key === 'Enter') doLogin(); });
 document.getElementById('logout-btn').addEventListener('click', doLogout);
+document.getElementById('change-pw-trigger').addEventListener('click', showChangePw);
+document.getElementById('change-pw-btn').addEventListener('click', doChangePw);
 
-// 페이지 로드 시 인증 확인
 checkAuth();
 
 // === Tab Switch ===
